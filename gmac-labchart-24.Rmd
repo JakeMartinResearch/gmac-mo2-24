@@ -727,18 +727,28 @@ Plotting MO2 estimates for each fish. The dashed red line is Chabot SMR methods,
 <br>
 
 
-
 ```{r}
-output_fig_slopes_wd <- paste0(output_fig_wd, "./slopes")
-ifelse(!dir.exists(output_fig_slopes_wd), dir.create(output_fig_slopes_wd), "Folder already exists")
+# Create output directory if needed
+output_fig_slopes_wd <- file.path(output_fig_wd, "slopes")
+if (!dir.exists(output_fig_slopes_wd)) {
+  dir.create(output_fig_slopes_wd)
+}
 
 ids <- labchart_tidy_fish %>% 
   dplyr::distinct(id) %>% 
   pull(id) %>% 
   as.list()
 
+# 1) Open the PDF device once
+pdf(
+  file   = file.path(output_fig_slopes_wd, "combined_slopes.pdf"), 
+  width  = 8, 
+  height = 6
+)
+
+# 2) Loop over IDs and create each plot
 for (id_i in ids) {
-      
+  
   smr_chabot <- labchart_tidy_fish %>% 
     dplyr::filter(id == id_i) %>% 
     dplyr::slice(1) %>% 
@@ -749,22 +759,25 @@ for (id_i in ids) {
     dplyr::slice(1) %>% 
     dplyr::pull(SMR)
   
-    plot <- labchart_tidy_fish %>% 
-      dplyr::filter(id == id_i) %>% 
-      ggplot(aes(y = MO2, x = o2)) + # Group by 1 to ensure a single line
-      geom_hline(yintercept = smr_chabot, linetype = "dashed", color = "darkred") +
-      geom_hline(yintercept = smr_l3, color = "darkred") +
-            geom_point(aes(colour = phase)) +
-      theme_clean() +
-      labs(subtitle = paste0(id_i, " Pcrit"),
-           x = "Mean o2 (mg_per_l)",
-           y = "abs(mo2) (mg_per_l)")
-    plot
-    
-    filename = paste0(output_fig_slopes_wd, "./slopes_", id_i, ".pdf")
-    ggsave(filename = filename, plot = plot)
-    print(plot)
+  plot <- labchart_tidy_fish %>% 
+    dplyr::filter(id == id_i) %>% 
+    ggplot(aes(x = o2, y = MO2)) +
+    geom_hline(yintercept = smr_chabot, linetype = "dashed", color = "darkred") +
+    geom_hline(yintercept = smr_l3, color = "darkred") +
+    geom_point(aes(colour = phase)) +
+    theme_clean() +
+    labs(
+      subtitle = paste0(id_i, " slopes"),
+      x = "Mean o2 (mg_per_l)",
+      y = "abs(mo2) (mg_per_l)"
+    )
+  
+  # Instead of saving each plot separately, just print it
+  print(plot)
 }
+
+# 3) Close the PDF device *after* the loop
+dev.off()
 ```
 
 
@@ -822,32 +835,40 @@ pcrit_model_df <- bind_rows(pcrit_model_df_list)
 Here's the plots for the Pcrit estimates
 
 ```{r}
-output_fig_pcrit_chabot_wd <- paste0(output_fig_wd, "./model_chabot")
-ifelse(!dir.exists(output_fig_pcrit_chabot_wd), dir.create(output_fig_pcrit_chabot_wd), "Folder already exists")
+# Create output directory if needed
+output_fig_pcrit_chabot_wd <- file.path(output_fig_wd, "model_chabot")
+if (!dir.exists(output_fig_pcrit_chabot_wd)) {
+  dir.create(output_fig_pcrit_chabot_wd)
+}
 
 ids <- labchart_tidy_fish %>% 
   dplyr::distinct(id) %>% 
   dplyr::pull()
 
+# Open a single PDF device
+pdf(file = file.path(output_fig_pcrit_chabot_wd, "combined_chabot_plots.pdf"), 
+    width = 8, height = 6)
+
 for (id_i in ids) {
   
-  r2 <- pcrit_model_df %>% dplyr::filter(id == id_i) %>% 
+  r2 <- pcrit_model_df %>% 
+    dplyr::filter(id == id_i) %>% 
     dplyr::mutate(pcrit_r2 = round(pcrit_r2, 3)) %>% 
-    pull(pcrit_r2)
+    dplyr::pull(pcrit_r2)
   
-  pdf(file = paste0(output_fig_pcrit_chabot_wd, "./", "pcrit_chabot_", id_i, ".pdf"), 
-        width = 8, height = 6)
-    
-    # Generate and render the plot
-    plotO2crit(o2critobj=pcrit_models[[id_i]])
-    
-    # Add a title in the top-left corner
-    mtext(text = paste0(id_i, " (R2 = ", r2, ")"),
-          side = 3, line = 2, adj = 0, # Top margin, aligned to left
-          col = "blue", font = 2, cex = 1.2)
-    
-    dev.off()
+  # Generate and render the plot
+  plotO2crit(o2critobj = pcrit_models[[id_i]])
+  
+  # Add a title
+  mtext(
+    text = paste0(id_i, " (R2 = ", r2, ")"),
+    side = 3, line = 2, adj = 0,
+    col = "blue", font = 2, cex = 1.2
+  )
 }
+
+# Close the PDF device *after* the loop
+dev.off()
 ```
 
 
@@ -950,13 +971,20 @@ pcirt <- bind_rows(combined_pcirt_list)
 Here we will plot the various Pcrit curves 
 
 ```{r}
-output_fig_pcrit_100c_wd <- paste0(output_fig_wd, "./pcrit-100c")
-ifelse(!dir.exists(output_fig_pcrit_100c_wd), dir.create(output_fig_pcrit_100c_wd), "Folder already exists")
+# Create output directory if needed
+output_fig_pcrit_100c_wd <- file.path(output_fig_wd, "pcrit-100c")
+if (!dir.exists(output_fig_pcrit_100c_wd)) {
+  dir.create(output_fig_pcrit_100c_wd)
+}
 
 ids <- labchart_tidy_fish_100c %>% 
   dplyr::distinct(id) %>% 
   pull(id) %>% 
   as.list()
+
+# Open a single PDF device once
+pdf(file = file.path(output_fig_pcrit_100c_wd, "combined_pcrit_plots.pdf"), 
+    width = 8, height = 6)
 
 for (id_i in ids) {
   
@@ -968,10 +996,6 @@ for (id_i in ids) {
   MR_set <- mo2_data$SMR[1] %>% as.numeric()
   
   tryCatch({
-    # Open a PDF device
-    pdf(file = paste0(output_fig_pcrit_100c_wd, "./", "pcrit_plot_", id_name, ".pdf"), 
-        width = 8, height = 6)
-    
     # Generate and render the plot
     plot_pcrit(
       po2 = mo2_data$o2, 
@@ -994,9 +1018,9 @@ for (id_i in ids) {
     
   }, error = function(e) {
     message("Skipping channel ", id_name, " due to error: ", conditionMessage(e))
-  }, finally = {
-    # Ensure the device is closed
-    dev.off()
   })
 }
+
+# Close the PDF device *after* the loop
+dev.off()
 ```

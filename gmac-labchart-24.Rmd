@@ -1,0 +1,1002 @@
+---
+title: "gmac-lab-chart"
+author: "Jake Martin"
+date: "2024-12-22"
+output: html_document
+---
+
+#########################
+# READ ME 
+#########################
+
+This R code is used to estimate mo2 and Pcrit (commonly understood as the threshold below which oxygen consumption rate can no longer be sustained) in the Common galaxias (Galaxias maculatus). The assocated article is "The role of osmorespiratory compromise in hypoxia tolerance of the purportedly oxyconforming teleost *Galaxias maculatus*"
+
+#########################
+# Knit settings 
+#########################
+
+```{r setup, include = FALSE}
+#kniter seetting
+knitr::opts_chunk$set(
+message = FALSE,
+warning = FALSE, # no warnings
+cache = TRUE,# Cacheing to save time when kniting
+tidy = TRUE
+)
+```
+
+#########################
+# Contact
+#########################
+
+Jake M. Martin
+
+Email: jake.martin@deakin.edu.au (or jake.martin.research@gmail.com)
+
+GitHub:https://github.com/JakeMartinResearch
+
+Web: https://jakemartin.org/
+
+#########################
+# Required packages
+#########################
+
+```{r, message=FALSE, results='hide'}
+# this installs and load packages
+# need to install pacman
+pacman::p_load("ggplot2", 
+               "ggthemes", 
+               "ggfortify", 
+               "gtExtras", 
+               "igraph",
+               "dagitty",
+               "ggdag",
+               "ggridges",
+               "gghalves",
+               "ggExtra",
+               "gridExtra",
+               "corrplot",
+               "RColorBrewer", 
+               "gt", 
+               "gtsummary",
+               "grid",
+               "plotly", # data visualisation
+               
+                "tidyverse", 
+               "janitor", 
+               "readxl", 
+               "broom", 
+               "data.table", 
+               "devtools",
+               "hms", # data tidy
+               
+               "marginaleffects", 
+               "brms", 
+               "rstan", 
+               "performance", 
+               "emmeans", 
+               "tidybayes", 
+               "vegan",
+               "betareg",
+               "lme4", 
+               "car", 
+               "lmerTest",
+               "qqplotr",
+               "respirometry",
+               "mclust",
+               # modelling 
+              
+               
+               "datawizard", 
+               "SRS" # data manipulation 
+                       )
+```
+
+
+#############
+# Functions (custom)
+#############
+
+Here are some of the custom function used in the script. They are authored by Chabot D.
+
+## calcSMR
+
+```{r}
+calcSMR = function(Y, q=c(0.1,0.15,0.2,0.25,0.3), G=1:4){
+	u = sort(Y)
+	the.Mclust <- Mclust(Y,  G=G)
+	cl <- the.Mclust$classification
+	# sometimes, the class containing SMR is not called 1
+	# the following presumes that when class 1 contains > 10% of cases, 
+	# it contains SMR, otherwise we take class 2
+	cl2 <- as.data.frame(table(cl))
+	cl2$cl <- as.numeric(levels(cl2$cl))
+	valid <- cl2$Freq>=0.1*length(time)  
+	the.cl <- min(cl2$cl[valid])
+	left.distr <- Y[the.Mclust$classification==the.cl]
+	mlnd = the.Mclust$parameters$mean[the.cl]
+	CVmlnd = sd(left.distr)/mlnd * 100
+	quant=quantile(Y, q)
+	low10=mean(u[1:10])
+	low10pc = mean(u[6:(5 + round(0.1*(length(u)-5)))])
+	# remove 5 outliers, keep lowest 10% of the rest, average
+	# Herrmann & Enders 2000
+	return(list(mlnd=mlnd, quant=quant, low10=low10, low10pc=low10pc,
+		      cl=cl, CVmlnd=CVmlnd))
+}
+```
+
+
+## calcO2crit
+
+Making the calcO2crit function 
+
+```{r}
+calcO2crit <- function(Data, SMR, lowestMO2=NA, gapLimit = 4,
+max.nb.MO2.for.reg = 20)
+{
+# AUTHOR: Denis Chabot, Institut Maurice-Lamontagne, DFO, Canada
+# first version written in June 2009
+# last updated in January 2015
+method = "LS_reg" # will become "through_origin" if intercept is > 0
+if(is.na(lowestMO2)) lowestMO2 = quantile(Data$MO2[Data$DO >= 80], p=0.05)
+# Step 1: identify points where MO2 is proportional to DO
+geqSMR = Data$MO2 >= lowestMO2
+pivotDO = min(Data$DO[geqSMR])
+lethal = Data$DO < pivotDO
+N_under_SMR = sum(lethal) # points available for regression?
+final_N_under_SMR = lethal # some points may be removed at Step 4
+lastMO2reg = Data$MO2[Data$DO == pivotDO] # last MO2 when regulating
+if(N_under_SMR > 1) theMod = lm(MO2~DO, data=Data[lethal,])
+# Step 2, add one or more point at or above SMR
+# 2A, when there are fewer than 3 valid points to calculate a regression
+if(N_under_SMR < 3){
+missing = 3 - sum(lethal)
+not.lethal = Data$DO[geqSMR]
+DOlimit = max(sort(not.lethal)[1:missing]) # highest DO acceptable
+# to reach a N of 3
+addedPoints = Data$DO <= DOlimit
+lethal = lethal | addedPoints
+theMod = lm(MO2~DO, data=Data[lethal,])
+}
+# 2B, add pivotDO to the fit when Step 1 yielded 3 or more values?
+if(N_under_SMR >= 3){
+lethalB = Data$DO <= pivotDO # has one more value than "lethal"
+regA = theMod
+regB = lm(MO2~DO, data=Data[lethalB,])
+large_slope_drop = (coef(regA)[2]/coef(regB)[2]) > 1.1 # arbitrary
+large_DO_gap = (max(Data$DO[lethalB]) - max(Data$DO[lethal])) > gapLimit
+tooSmallMO2 = lastMO2reg < SMR
+if(!large_slope_drop & !large_DO_gap & !tooSmallMO2) {
+lethal = lethalB
+theMod = regB
+} # otherwise we do not accept the additional point
+}
+# Step 3
+# if the user wants to limit the number of points in the regression
+if(!is.na(max.nb.MO2.for.reg) & sum(lethal)>max.nb.MO2.for.reg){
+Ranks = rank(Data$DO)
+lethal = Ranks <= max.nb.MO2.for.reg
+theMod = lm(MO2~DO, data=Data[lethal,])
+final_N_under_SMR = max.nb.MO2.for.reg
+}
+# Step 4
+predMO2 = as.numeric(predict(theMod, data.frame(DO=Data$DO)))
+Data$delta = (Data$MO2-predMO2)/predMO2 * 100 # residuals set to zero
+# when below pivotDO
+Data$delta[Data$DO < pivotDO | lethal] = 0
+tol = 0 # any positive residual is unacceptable
+HighValues = Data$delta > tol
+Ranks = rank(-1*Data$delta)
+HighMO2 = HighValues & Ranks == min(Ranks) # keep largest residual
+if (sum(HighValues) > 0) {
+nblethal = sum(lethal)
+Data$W = NA
+Data$W[lethal]=1/nblethal
+Data$W[HighMO2] = 1
+theMod = lm(MO2~DO, weight=W, data=Data[lethal | HighMO2,])
+# This new regression is always an improvement, but there can still
+# be points above the line, so we repeat
+predMO2_2 = as.numeric(predict(theMod, data.frame(DO=Data$DO)))
+Data$delta2 = (Data$MO2-predMO2_2)/predMO2_2 * 100
+Data$delta2[Data$DO < pivotDO] = 0
+tol = Data$delta2[HighMO2]
+HighValues2 = Data$delta2 > tol
+if(sum(HighValues2)>0){
+Ranks2 = rank(-1*Data$delta2)
+HighMO2_2 = HighValues2 & Ranks2 == 1 # keep the largest residual
+nblethal = sum(lethal)
+Data$W = NA
+Data$W[lethal]=1/nblethal
+Data$W[HighMO2_2] = 1
+theMod2 = lm(MO2~DO, weight=W, data=Data[lethal | HighMO2_2,])
+# is new slope steeper than the old one?
+if(theMod2$coef[2] > theMod$coef[2]) {
+theMod = theMod2
+HighMO2 = HighMO2_2
+}
+} # end second search for high value
+} # end first search for high value
+Coef = coefficients(theMod)
+#Step 5, check for positive intercept
+AboveOrigin = Coef[1] > 0
+# if it is, we use a regression that goes through the origin
+if (AboveOrigin){
+theMod = lm(MO2~DO -1, data=Data[lethal,])
+Coef = c(0, coefficients(theMod)) # need to add the intercept (0)
+# manually to have a pair of coefficients
+method = "through_origin"
+HighMO2 = rep(FALSE, nrow(Data)) # did not use the additional value
+# from Step 4
+}
+po2crit = as.numeric(round((SMR - Coef[1]) / Coef[2], 1))
+sum_mod = summary(theMod)
+anov_mod = anova(theMod)
+O2CRIT = list(o2crit=po2crit, SMR=SMR, Nb_MO2_conforming = N_under_SMR,
+Nb_MO2_conf_used = final_N_under_SMR,
+High_MO2_required = sum(HighMO2) == 1, origData=Data,
+Method=method, mod=theMod, r2 = sum_mod$r.squared,
+P = anov_mod$"Pr(>F)", lethalPoints = which(lethal),
+AddedPoints = which(HighMO2))
+} # end function
+```
+
+
+## plotO2crit
+
+```{r}
+plotO2crit <- function(o2critobj, plotID="",
+Xlab="Dissolved oxygen (% sat.)", Ylab="dotitalumol",
+smr.cex=0.9, o2crit.cex=0.9, plotID.cex=1.2,
+Transparency=T,...)
+{
+# AUTHOR: Denis Chabot, Institut Maurice-Lamontagne, DFO, Canada
+# first version written in June 2009
+# last updated 2015-02-09
+# for R plotting devices that do not support transparency
+# (e.g., postscript), set Transparency to FALSE
+smr = o2critobj$SMR
+if(Ylab %in% c("dotitalumol", "italumol", "dotumol", "umol",
+"dotitalmg", "italmg", "dotmg", "mg")) {
+switch(Ylab,
+dotitalumol = {
+mo2.lab = expression(paste(italic(dot(M))[O[2]], " (",mu,"mol ", O[2],
+" ", min^-1, " ", kg^-1, ")"))
+},
+italumol = {
+mo2.lab = expression(paste(italic(M)[O[2]], " (",mu,"mol ", O[2], " ",
+min^-1, " ", kg^-1, ")"))
+},
+dotumol = {
+mo2.lab = expression(paste(dot(M)[O[2]], " (",mu,"mol ", O[2], " ",
+min^-1, " ", kg^-1, ")"))
+},
+umol = {
+mo2.lab = expression(paste(M[O[2]], " (",mu,"mol ", O[2], " ", min^-1,
+" ", kg^-1, ")"))
+},
+dotitalmg = {
+mo2.lab = expression(paste(italic(dot(M))[O[2]], " (mg ", O[2], " ",
+h^-1, " ", kg^-1, ")"))
+},
+italmg = {
+mo2.lab = expression(paste(italic(M)[O[2]], " (mg ", O[2], " ",
+h^-1, " ", kg^-1, ")"))
+},
+dotmg = {
+mo2.lab = expression(paste(dot(M)[O[2]], " (mg ", O[2], " ", h^-1, " ",
+kg^-1, ")"))
+},
+mg = {
+mo2.lab = expression(paste(M[O[2]], " (mg ", O[2], " ", h^-1, " ",
+kg^-1, ")"))
+}
+)
+} else mo2.lab=Ylab
+if(Transparency) {Col=c(rgb(0,0,0,0.7), "red", "orange")
+} else {Col=c(grey(0.3), "red", "orange")}
+Data=o2critobj$origData
+Data$Color = Col[1]
+Data$Color[o2critobj$lethalPoints] = Col[2]
+Data$Color[o2critobj$AddedPoints] = Col[3]
+# ordinary LS regression without added points: blue line, red symbols
+# ordinary LS regression with added points: blue line, red & orange symbols
+# regression through origin: green dotted line, red symbols
+line.color = ifelse(o2critobj$Method=="LS_reg", "blue", "darkgreen")
+line.type = ifelse(o2critobj$Method=="LS_reg", 1, 3)
+limX = c(0, max(Data$DO))
+limY = c(0, max(Data$MO2))
+plot(MO2~DO, data=Data, xlim=limX, ylim=limY, col=Data$Color, xlab=Xlab,
+ylab=mo2.lab, ...)
+coord <- par("usr")
+if(plotID != ""){
+text(0, coord[4], plotID, cex=plotID.cex, adj=c(0,1.2))
+}
+abline(h=smr, col="orange")
+text(coord[1], smr, "SMR", adj=c(-0.1,1.3), cex=smr.cex)
+text(coord[1], smr, round(smr,1), adj=c(-0.1,-0.3), cex=smr.cex)
+if(!is.na(o2critobj$o2crit)) {
+abline(o2critobj$mod, col=line.color, lty=line.type)
+segments(o2critobj$o2crit, smr, o2critobj$o2crit, coord[3],
+col=line.color, lwd=1)
+text(x=o2critobj$o2crit, y=0, o2critobj$o2crit, col=line.color,
+cex=o2crit.cex, adj=c(-0.1,0.5))
+}
+} # end of function
+```
+
+
+#########################
+# Working directories 
+#########################
+
+## Input
+
+The current working directory 
+
+```{r}
+wd <- getwd()
+```
+
+
+Directory for the metadata
+
+```{r}
+meta_files_wd <- paste0(wd, "./meta-data") # creates a variable with the name of the wd we want to use
+```
+
+Directory for Labchart estimated slopes
+
+```{r}
+labchart_wd <- paste0(wd, "./lab-chart-slopes")
+```
+
+## Output
+
+This code creates a new folder for data output called tidy-output-data, we then save this wd as the output_wd
+
+```{r}
+output_data_wd <- paste0(wd, "./output-data")
+ifelse(!dir.exists("output-data"), dir.create("output-data"), "Folder already exists")
+```
+
+This is where we will put the figures
+
+```{r}
+output_fig_wd <- paste0(wd, "./output-fig")
+ifelse(!dir.exists("output-fig"), dir.create("output-fig"), "Folder already exists")
+```
+
+#########################
+# Input files
+#########################
+
+## Slopes (MO2)
+
+These are the slopes mainly extracted in LabChart during each phase of the experiment
+
+```{r}
+ setwd(labchart_wd)
+# 
+# # Get the names of all sheets in the Excel file
+sheet_names <- excel_sheets("labchart-all-dates_v2.xlsx")
+all_trials_select <- c("start_date", "order", "phase", "cycle", "date", "time")
+labchart_list <- list()
+
+for (sheet in sheet_names) {
+
+  df <- read_excel("labchart-all-dates_v2.xlsx", sheet = sheet) %>% 
+  dplyr::rename_with(tolower)
+  
+a_name <- paste0("a_", tolower(sheet))
+a_df <- df %>%
+  dplyr::select(starts_with('a'), all_trials_select) %>% 
+  dplyr::rename(temp = a_temp) %>% 
+  dplyr::mutate(across(starts_with('a'), as.numeric)) %>% 
+  pivot_longer(
+    cols = starts_with('a'), # Select all columns to pivot
+    names_to = c("chamber_id", ".value"), # Separate column names into 'id' and other variables
+    names_sep = "_"
+  ) %>%
+  dplyr::mutate(respirometer_group = "a") # Add a new column with a fixed value
+
+labchart_list[[a_name]]<- a_df
+
+b_name <- paste0("b_", tolower(sheet))
+b_df <- df %>% 
+  dplyr::select(starts_with('b'), all_trials_select) %>% 
+  dplyr::rename(temp = b_temp) %>% 
+  dplyr::mutate(across(starts_with('b'), as.numeric)) %>% 
+  pivot_longer(
+    cols = starts_with('b'), # Select all columns to pivot
+    names_to = c("chamber_id", ".value"), # Separate column names into 'id' and other variables
+    names_sep = "_"
+  ) %>% 
+    dplyr::mutate(respirometer_group = "b")
+
+labchart_list[[b_name]] <- b_df
+
+c_name <- paste0("c_", tolower(sheet))
+c_df <- df %>% 
+  dplyr::select(starts_with('c'), all_trials_select) %>% 
+  dplyr::rename(temp = c_temp,
+                i_cycle = cycle) %>% 
+  dplyr::mutate(across(starts_with('c'), as.numeric)) %>%
+  pivot_longer(
+    cols = starts_with('c'), # Select all columns to pivot
+    names_to = c("chamber_id", ".value"), # Separate column names into 'id' and other variables
+    names_sep = "_"
+  ) %>% 
+    dplyr::mutate(respirometer_group = "c") %>% 
+  dplyr::rename(cycle = i_cycle)
+
+labchart_list[[c_name]] <- c_df
+
+d_name <- paste0("d_", tolower(sheet))
+d_df <- df %>% 
+  dplyr::select(starts_with('d'), all_trials_select) %>% 
+  dplyr::rename(temp = d_temp,
+                i_date = date) %>% 
+  dplyr::mutate(across(starts_with('d'), as.numeric)) %>%
+  pivot_longer(
+    cols = starts_with('d'), # Select all columns to pivot
+    names_to = c("chamber_id", ".value"), # Separate column names into 'id' and other variables
+    names_sep = "_"
+  ) %>% 
+    dplyr::mutate(respirometer_group = "d") %>% 
+  dplyr::rename(date = i_date)
+
+labchart_list[[d_name]] <- d_df
+}
+
+
+labchart_df <- bind_rows(labchart_list) %>% 
+  dplyr::mutate(resp_cat_date = paste0(respirometer_group, "_", start_date),
+                chamber_n = str_extract(chamber_id, "\\d+"),
+                id_prox = paste0(resp_cat_date, "_", chamber_n),
+                time_hms = as_hms(time*3600),
+                date_chr = format(date, "%d/%m/%Y")
+                )
+```
+
+## Metadata
+
+This is the meta data for each chamber
+
+We are also adding volume based on chamber type.
+
+```{r}
+setwd(meta_files_wd)
+
+metadata <- read_excel("Morpho.xlsx", na = "NA") %>% 
+  dplyr::mutate(id_split = id) %>% 
+  tidyr::separate(id_split, into = c("respirometer_group", "salinity_group", "start_date", "chamber"), sep = "_") %>% 
+  dplyr::mutate(
+      volume = dplyr::case_when(
+        chamber_type == "L" ~ 0.300,
+        chamber_type == "M_M" ~ 0.105,
+        chamber_type == "M_NM" ~ 0.11,
+        chamber_type == "S" ~ 0.058,
+        chamber_type == "SM" ~ 0.075,
+        chamber_type == "D3" ~ 0.055,
+        TRUE ~ NA
+      ),
+      id_prox = paste0(respirometer_group, "_", start_date, "_", chamber))
+```
+
+
+### Combinding metadata
+
+Adding the meta data to LabChart slopes
+
+```{r}
+labchart_tidy <- labchart_df %>% 
+  dplyr::select(-start_date, -respirometer_group) %>% 
+  left_join(metadata, by = "id_prox") %>% 
+  dplyr::arrange(id)
+```
+
+
+###################
+# Labchart data
+###################
+
+We have **64 fish** with MO2 data
+
+```{r}
+n <- labchart_tidy %>% 
+  dplyr::filter(chamber_condition == "fish") %>% 
+  dplyr::distinct(id) %>% 
+  nrow(.)
+
+paste0("n = ", n)
+```
+
+
+## Filtering MO2
+
+Here we apply the following filters to the MO2 data: <br>
+
+- Remove the first 5 SMR cycles (burn in), 
+- *?Remove all positive MO2 (data has not been subject to any transformations yet)* ; should we do this?
+- Remove all MO2 calculated using less then 60 data points (5 min) 
+- Remove all MO2 calculated when phase 50 close (50c) had high O2 (o2 < 6) 
+
+
+```{r}
+cycle_burn <- 0:4
+
+labchart_tidy_fish <- labchart_tidy %>%
+  dplyr::filter(!(cycle %in% cycle_burn) & 
+                  mo2corr < 0 & 
+                  n > 60 &
+                  chamber_condition == "fish"
+                )
+  
+# 50c remove case with high o2
+labchart_tidy_fish <- labchart_tidy_fish %>% 
+    dplyr::filter(!(phase == "50c" & 
+                      o2 > 6)) # Removing any period in 50c where o2 was to high (opened)
+```
+
+## SMR
+
+Here we will estimate SMR using the mean of the lowest 3 vaules
+
+```{r}
+smr_3l_means <- labchart_tidy_fish %>%
+  dplyr::group_by(id) %>% 
+  dplyr::filter(phase == "smr") %>%
+  dplyr::arrange(desc(mo2corr)) %>%
+  dplyr::slice_head(n = 3)  %>% # Select the three lowest MO2
+  dplyr::ungroup() %>% 
+  dplyr::group_by(id) %>% 
+  dplyr::reframe(smr_l3 = mean(mo2corr))
+
+# Combine the processed "smr" phase with all other phases
+labchart_tidy_fish <- labchart_tidy_fish %>%
+  dplyr::left_join(., smr_3l_means, by = "id")
+```
+
+Here I am using the calcSMR function to estimate SMR. We use mean of the lowest normal distribution (MLND) where CVmlnd < 5.4 and the mean of the lower 20% quantile (q0.2) were CVmlnd > 5.4, as described in Chabot D, Steffensen JF, Farrell AP (2016) https://doi.org/10.1111/jfb.12845. If CVmlnd is not calculated we used q0.2. 
+
+```{r}
+labchart_chabot_smr <- labchart_tidy_fish %>%
+  dplyr::filter(phase == "smr")
+
+# Extract distinct IDs
+ids <- labchart_chabot_smr %>% 
+  dplyr::distinct(id) %>% 
+  dplyr::pull()
+
+# Initialise an empty list to store SMR data
+smr_list <- list()
+
+# Process each ID
+for (id_i in ids) {
+  tryCatch({
+    # Filter the data for the current ID
+    df_i <- labchart_chabot_smr %>% 
+      dplyr::filter(id == id_i) %>% 
+      dplyr::mutate(abs_mo2corr = abs(mo2corr))
+    
+    # Calculate SMR results
+    calcSMR_results <- calcSMR(df_i$abs_mo2corr)
+    CVmlnd_i <- calcSMR_results$CVmlnd
+    quant_i <- calcSMR_results$quant %>% as_tibble()
+    quant_20per_i <- quant_i$value[3]
+    mlnd_i <- calcSMR_results$mlnd
+    smr_value <- if_else(CVmlnd_i < 5.4, mlnd_i, quant_20per_i)
+    smr_type <- if_else(CVmlnd_i < 5.4, "mlnd", "quant_20per")
+    smr_value <- if_else(is.na(smr_value), quant_20per_i, smr_value)
+    smr_type <- if_else(is.na(smr_type), "quant_20per", smr_type)
+    
+    # Create a data frame for the current ID
+    smr_df <- tibble(
+      id = id_i,
+      smr = smr_value,
+      smr_est = smr_type
+    )
+    
+  }, error = function(e) {
+    # Handle errors by assigning NA values
+    smr_df <- tibble(
+      id = id_i,
+      smr = NA,
+      smr_est = NA
+    )
+  })
+  
+  # Append to the list
+  smr_list[[id_i]] <- smr_df
+}
+
+# Combine all individual SMR data frames into one
+smr_df <- bind_rows(smr_list) %>% 
+  dplyr::rename(smr_chabot = smr,
+                smr_chabot_method = smr_est)
+
+labchart_tidy_fish <- labchart_tidy_fish %>%
+  dplyr::left_join(., smr_df, by = "id")
+```
+
+
+## Transforming MO2 vaules
+
+Here we are transforming the MO2 vaules 
+
+- MO2 = absolute value of the background and leak corrected mo2 slope from labchart (mo2corr)
+- MO2_g = MO2 divided by fish mass
+- SMR = absolute value of the mean of the three lowest MO2 during the SMR phase (smr_l3)
+- SMR_g = SMR divided by fish mass
+- SMR_CHABOT = absolute value of the SMR estimates using Chabot et al recommendations (smr_chabot)
+- SMR_g = SMR_CHABOT divided by fish mass
+- DO = dissolved oxygen percentage calculated from o2 values (mg/L) using the recorded temperature, salinity, and a constant atmospheric pressure (1013.25)
+
+*NOTE*: need to chat about units and corrections. I know there are some parts below that are incorrect. 
+
+```{r}
+# Combine back into one data frame
+labchart_tidy_fish <- labchart_tidy_fish %>% 
+    dplyr::mutate(MO2 = abs(mo2corr),
+                  MO2_g = MO2/mass,
+                  SMR = abs(smr_l3),
+                  SMR_g = SMR/mass,
+                  SMR_CHABOT = abs(smr_chabot),
+                  SMR_CHABOT_g = SMR_CHABOT/mass,
+                  DO = conv_o2(
+                  o2 = o2,
+                  from = "mg_per_l",
+                  to = "percent_a.s.",
+                  temp = temp, #C
+                  sal = measured_salinity,
+                  atm_pres = 1013.25),
+                  net_volume = volume - mass, # Following instructions from Luis
+                  MO2_BG = abs(mo2*net_volume*60*60), # Following instructions from Luis 
+                  BG = bground*volume*60*60, # Following instructions from Luis (would need to add leak data)
+                  MO2_adj = MO2_BG + BG, # Following instructions from Luis 
+    )
+```
+
+
+#######################
+# Visualise 
+#######################
+
+Here we plot all MO2 data. This is the absolute MO2, corrected for background respiration and any leaking that occurred down at low oxygen levels.
+
+```{r}
+labchart_tidy_fish %>% 
+  dplyr::filter(chamber_condition == "fish") %>% 
+    ggplot(aes(y = MO2_g, x = o2, colour = id)) + # Default aesthetics
+  geom_point(show.legend = FALSE) +
+  geom_smooth(aes(group = id), method = "lm", se = FALSE, colour = scales::alpha("black", 0.5)) + # Transparent black lines
+  geom_smooth(method = "lm", se = TRUE, colour = "red") + # Overall smooth line
+  geom_smooth(se = TRUE, colour = "red", linetype = "dashed") +
+  theme_clean() +
+  labs(
+    subtitle = "All values",
+    x = "O2",
+    y = "MO2 (g)"
+  )
+```
+
+Looking at the difference responses in the two salinity groups. It's appears more variable in freshwater.
+
+```{r}
+labchart_tidy_fish %>% 
+  dplyr::filter(chamber_condition == "fish") %>% 
+    ggplot(aes(y = MO2_g, x = o2, colour = id)) + # Default aesthetics
+  geom_point(show.legend = FALSE) +
+  geom_smooth(aes(group = id), method = "lm", se = FALSE, colour = scales::alpha("black", 0.5)) + # Transparent black lines
+  geom_smooth(method = "lm", se = TRUE, colour = "red") + # Overall smooth line
+  geom_smooth(se = TRUE, colour = "red", linetype = "dashed") +
+  theme_clean() +
+  facet_wrap(~salinity_group) +
+  labs(
+    subtitle = "mo2 vs o2 by salinity treatment",
+    x = "o2",
+    y = "mo2 (g)"
+  )
+```
+
+
+```{r}
+labchart_tidy_fish %>% 
+  dplyr::filter(chamber_condition == "fish") %>% 
+    ggplot(aes(y = MO2_g, x = o2, colour = id)) + # Default aesthetics
+  geom_point(show.legend = FALSE) +
+  geom_smooth(aes(group = id), method = "lm", se = FALSE, colour = scales::alpha("black", 0.5)) + # Transparent black lines
+  geom_smooth(method = "lm", se = TRUE, colour = "red") + # Overall smooth line
+  geom_smooth(se = TRUE, colour = "red", linetype = "dashed") +
+  theme_clean() +
+  facet_wrap(~chamber_type) +
+  labs(
+    subtitle = "mo2 vs o2 by salinity treatment",
+    x = "o2",
+    y = "mo2 (g)"
+  )
+```
+
+
+Plotting MO2 estimates for each fish. The dashed red line is Chabot SMR methods, and the solid line is the mean of the lowest 3 measures (excluding the first 5 cycles) <br>
+
+*NOTES"*: 
+(1) There's something wired going on with *a_0_25nov_2* it seems like many of the raw MO2 values are positive.
+(2) Often there seems to be a low MO2 vaule at about 5 mg/L O2
+<br>
+
+
+
+```{r}
+output_fig_slopes_wd <- paste0(output_fig_wd, "./slopes")
+ifelse(!dir.exists(output_fig_slopes_wd), dir.create(output_fig_slopes_wd), "Folder already exists")
+
+ids <- labchart_tidy_fish %>% 
+  dplyr::distinct(id) %>% 
+  pull(id) %>% 
+  as.list()
+
+for (id_i in ids) {
+      
+  smr_chabot <- labchart_tidy_fish %>% 
+    dplyr::filter(id == id_i) %>% 
+    dplyr::slice(1) %>% 
+    dplyr::pull(SMR_CHABOT)
+  
+  smr_l3 <- labchart_tidy_fish %>% 
+    dplyr::filter(id == id_i) %>% 
+    dplyr::slice(1) %>% 
+    dplyr::pull(SMR)
+  
+    plot <- labchart_tidy_fish %>% 
+      dplyr::filter(id == id_i) %>% 
+      ggplot(aes(y = MO2, x = o2)) + # Group by 1 to ensure a single line
+      geom_hline(yintercept = smr_chabot, linetype = "dashed", color = "darkred") +
+      geom_hline(yintercept = smr_l3, color = "darkred") +
+            geom_point(aes(colour = phase)) +
+      theme_clean() +
+      labs(subtitle = paste0(id_i, " Pcrit"),
+           x = "Mean o2 (mg_per_l)",
+           y = "abs(mo2) (mg_per_l)")
+    plot
+    
+    filename = paste0(output_fig_slopes_wd, "./slopes_", id_i, ".pdf")
+    ggsave(filename = filename, plot = plot)
+    print(plot)
+}
+```
+
+
+#################
+# Pcrit (O2crit)
+################
+
+## Chabot method
+
+Here we will calculate Pcrit using Chabot method and function calcO2crit. We are using our estimates for SMR (mean of lowest three)
+
+```{r}
+ids <- labchart_tidy_fish %>% 
+  dplyr::distinct(id) %>% 
+  dplyr::pull()
+
+pcrit_model_df_list <- list()
+pcrit_models <-  list()
+
+for (id_i in ids) {
+
+df_i <- labchart_tidy_fish %>% 
+  dplyr::filter(id == id_i)
+
+o2crit <- calcO2crit(Data = df_i, SMR = df_i$SMR[1], lowestMO2=NA, gapLimit = 4,
+                     max.nb.MO2.for.reg = 7)
+
+vaule <- o2crit$o2crit
+nb_mo2_conforming <- o2crit$Nb_MO2_conforming
+r2 <- o2crit$r2
+method <- o2crit$Method
+p <- o2crit$P[1]
+
+pcrit_model_df <- tibble(
+      id = id_i,
+      pcrit_vaule = vaule,
+      pcrit_nb_mo2_conforming = nb_mo2_conforming,
+      pcrit_r2 = r2,
+      pcrit_method = method,
+      pcrit_p = p
+    )
+
+pcrit_model_df_list[[id_i]] <- pcrit_model_df
+
+pcrit_models[[id_i]] <- o2crit
+
+}
+
+pcrit_model_df <- bind_rows(pcrit_model_df_list)
+```
+
+
+### Ploting o2 crit
+
+Here's the plots for the Pcrit estimates
+
+```{r}
+output_fig_pcrit_chabot_wd <- paste0(output_fig_wd, "./model_chabot")
+ifelse(!dir.exists(output_fig_pcrit_chabot_wd), dir.create(output_fig_pcrit_chabot_wd), "Folder already exists")
+
+ids <- labchart_tidy_fish %>% 
+  dplyr::distinct(id) %>% 
+  dplyr::pull()
+
+for (id_i in ids) {
+  
+  r2 <- pcrit_model_df %>% dplyr::filter(id == id_i) %>% 
+    dplyr::mutate(pcrit_r2 = round(pcrit_r2, 3)) %>% 
+    pull(pcrit_r2)
+  
+  pdf(file = paste0(output_fig_pcrit_chabot_wd, "./", "pcrit_chabot_", id_i, ".pdf"), 
+        width = 8, height = 6)
+    
+    # Generate and render the plot
+    plotO2crit(o2critobj=pcrit_models[[id_i]])
+    
+    # Add a title in the top-left corner
+    mtext(text = paste0(id_i, " (R2 = ", r2, ")"),
+          side = 3, line = 2, adj = 0, # Top margin, aligned to left
+          col = "blue", font = 2, cex = 1.2)
+    
+    dev.off()
+}
+```
+
+
+## calc_pcrit()
+
+Here using the *100 closed trials* we will estimate Pcrit (commonly understood as the threshold below which oxygen consumption rate can no longer be sustained), based on paired PO2 and MO2 values with five popular techniques for Pcrit calculation: the traditional breakpoint metric (broken stick regression), the nonlinear regression metric (Marshall et al. 2013), the sub-prediction interval metric (Birk et al. 2019), the alpha-based Pcrit method (Seibel et al. 2021), and the linear low O2 (LLO) method (Reemeyer & Rees 2019).
+
+https://search.r-project.org/CRAN/refmans/respirometry/html/calc_pcrit.html
+
+Marshall et al (2013) suggest nonlinear regression (NLR)
+
+Here's a function to calculate Pcrit, we are using a function called calc_pcrit from the respirmetery package.
+
+### !parameters!
+
+parameters to consider
+*avg_top_n*: for alpha method, a numeric value representing the number of top α0 (MO2/PO2) values to average together to estimate α. Default is 1. We recommend no more than 3 to avoid diminishing the α value with sub-maximal observations.
+*level*: for Sub_PI method, Percentage at which the prediction interval should be constructed.
+*iqr*: Only for Sub_PI. Removes mo2 observations that are this many interquartile ranges away from the mean value for the oxyregulating portion of the trial. If this filtering is not desired, set to infinity. 
+*NLR_m*: only applies to NLR. Pcrit is defined as the PO2 at which the slope of the best fitting function equals NLR_m (after the MO2 data are normalized to the 90% quantile). Default is 0.065
+*MR*: A numeric value for the metabolic rate at which pcrit_alpha and pcrit_LLO should be returned. If not supplied by the user, then the mean MO2 of the "oxyregulating" portion of the curve is applied for pcrit_alpha and NA is returned for pcrit_LLO.
+*mo2_threshold*: A single numeric value above which mo2 values are ignored for alpha Pcrit estimation. Useful to removing obviously erroneous values. Default is Inf.
+
+### Formate data
+
+We will only use 100 c trails for this.
+
+```{r}
+labchart_tidy_fish_100c <- labchart_tidy_fish %>% 
+  dplyr::filter(phase == "100c")
+
+labchart_tidy_fish_100c_n <- labchart_tidy_fish_100c %>% 
+  dplyr::distinct(id) %>% 
+  nrow(.)
+
+paste0("n for 100 closed = ", labchart_tidy_fish_100c_n)
+```
+
+First we will build a model with 3 SMR values and all the 75c and 50c (or 100c) data
+
+```{r}
+combined_pcirt_list <- list()
+
+ids <- labchart_tidy_fish_100c %>% 
+  dplyr::distinct(id) %>% 
+  pull(id) %>% 
+  as.list()
+
+
+for (id_i in ids) {
+
+  id_name <- id_i
+  
+  mo2_data <- labchart_tidy_fish_100c %>% 
+    dplyr::filter(id == id_i)
+  
+  MR_set <- mo2_data$SMR[1] %>% as.numeric()
+  
+  # Use tryCatch to handle errors and skip problematic calculations
+  pcrit_df <- tryCatch({
+    
+    pcrit_df <- calc_pcrit(po2 = mo2_data$o2, 
+           mo2 = mo2_data$MO2, 
+           method = 'All',
+           avg_top_n = 2, # alpha metric (default = 1) recommend no more than 3
+           level = 0.95, # Sub_PI metric (default = 0.95)
+           iqr = 1.5, # Sub_PI metric (default = 1.5)
+           NLR_m = 0.065, # NLR metric (default = 0.065)
+           MR = MR_set, # alpha and LLO metrics,
+           mo2_threshold = Inf, # alpha metric
+           return_models = FALSE # return model parameters?
+           ) %>%
+      as.data.frame() %>%
+      rownames_as_column(var = "method") %>%
+      rename(value = ".") %>%
+      tidyr::pivot_wider(.,
+                     names_from = method,
+                     values_from = value) %>%
+      dplyr::mutate(id = id_name) %>%
+      dplyr::select(id, everything())
+    
+  }, error = function(e) {
+    message("Skipping channel ", id_name, " due to error: ", conditionMessage(e))
+    NULL
+  })
+  
+  # Only add to list if pcrit_df is not NULL
+  if (!is.null(pcrit_df)) {
+    combined_pcirt_list[[id_name]] <- pcrit_df
+  }
+}
+```
+
+```{r}
+pcirt <- bind_rows(combined_pcirt_list)
+```
+
+### Plot Pcrit
+
+Here we will plot the various Pcrit curves 
+
+```{r}
+output_fig_pcrit_100c_wd <- paste0(output_fig_wd, "./pcrit-100c")
+ifelse(!dir.exists(output_fig_pcrit_100c_wd), dir.create(output_fig_pcrit_100c_wd), "Folder already exists")
+
+ids <- labchart_tidy_fish_100c %>% 
+  dplyr::distinct(id) %>% 
+  pull(id) %>% 
+  as.list()
+
+for (id_i in ids) {
+  
+  id_name <- id_i
+  
+  mo2_data <- labchart_tidy_fish_100c %>% 
+    dplyr::filter(id == id_i)
+  
+  MR_set <- mo2_data$SMR[1] %>% as.numeric()
+  
+  tryCatch({
+    # Open a PDF device
+    pdf(file = paste0(output_fig_pcrit_100c_wd, "./", "pcrit_plot_", id_name, ".pdf"), 
+        width = 8, height = 6)
+    
+    # Generate and render the plot
+    plot_pcrit(
+      po2 = mo2_data$o2, 
+      mo2 = mo2_data$MO2, 
+      method = 'All',
+      avg_top_n = 1, 
+      level = 0.95, 
+      iqr = 1.5, 
+      NLR_m = 0.065, 
+      MR = MR_set, 
+      mo2_threshold = Inf, 
+      return_models = FALSE, 
+      showNLRs = FALSE
+    )
+    
+    # Add a title in the top-left corner
+    mtext(text = paste(id_name),
+          side = 3, line = 2, adj = 0, # Top margin, aligned to left
+          col = "blue", font = 2, cex = 1.2)
+    
+  }, error = function(e) {
+    message("Skipping channel ", id_name, " due to error: ", conditionMessage(e))
+  }, finally = {
+    # Ensure the device is closed
+    dev.off()
+  })
+}
+```

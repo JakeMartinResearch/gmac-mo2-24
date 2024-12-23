@@ -31,15 +31,19 @@ knit: |
 #########################
 
 **SUMMARY** <br>
-This R code is used to estimate MO2 and Pcrit (commonly understood as the threshold below which oxygen consumption rate can no longer be sustained) in the Common galaxias (Galaxias maculatus). The associated article is "The role of osmorespiratory compromise in hypoxia tolerance of the purportedly oxyconforming teleost *Galaxias maculatus*"
+This R code is used to estimate MO2 and Pcrit (commonly understood as the threshold below which oxygen consumption rate can no longer be sustained) in the Common galaxias (Galaxias maculatus). The associated article is "The role of osmorespiratory compromise in hypoxia tolerance of the purportedly oxyconforming teleost *Galaxias maculatus*" <br>
 
 **AUTHORS**<br>
-
+To be added
+<br>
 
 **AFFILIATIONS** <br>
+To be added
+<br>
 
 **AIM** <br>
-
+To be added
+<br>
 
 #########################
 # Knit settings 
@@ -65,7 +69,7 @@ tidy = TRUE
 
 **Email**: jake.martin@deakin.edu.au (or jake.martin.research@gmail.com) <br>
 
-**Web**: jake.martin.org <br>
+**Web**:  https://jake.martin.org <br>
 
 **GitHub**: https://github.com/JakeMartinResearch <br>
 
@@ -551,7 +555,7 @@ labchart_tidy %>%
 
 Here we apply the following filters to the MO2 data: <br>
 
-- Remove the first 5 SMR cycles (burn in), 
+- Remove the first 5 SMR cycles (burn in)
 - *?Remove all positive MO2 (data has not been subject to any transformations yet)* ; should we do this?
 - Remove all MO2 calculated using less then 60 data points (5 min) 
 - Remove all MO2 calculated when phase 50 close (50c) had high O2 (o2 < 6) 
@@ -668,7 +672,7 @@ Here we are transforming the MO2 vaules
 - SMR_g = SMR_CHABOT divided by fish mass
 - DO = dissolved oxygen percentage calculated from o2 values (mg/L) using the recorded temperature, salinity, and a constant atmospheric pressure (1013.25)
 
-*NOTE*: need to chat about units and corrections. I know there are some parts below that are incorrect. 
+*NOTE* : need to chat about units and corrections. I know there are some parts below that are incorrect. 
 
 ```{r}
 # Combine back into one data frame
@@ -715,7 +719,7 @@ labchart_tidy_fish %>%
     y = "MO2 (g)"
   )
 ```
-
+<br>
 Looking at the difference responses in the two salinity groups. It's appears more variable in freshwater.
 
 ```{r}
@@ -735,6 +739,8 @@ labchart_tidy_fish %>%
   )
 ```
 
+<br>
+Looking at the difference chamber types
 
 ```{r}
 labchart_tidy_fish %>% 
@@ -753,12 +759,12 @@ labchart_tidy_fish %>%
   )
 ```
 
-
+<br>
 Plotting MO2 estimates for each fish. The dashed red line is Chabot SMR methods, and the solid line is the mean of the lowest 3 measures (excluding the first 5 cycles) <br>
 
-*NOTES"*: 
-(1) There's something wired going on with *a_0_25nov_2* it seems like many of the raw MO2 values are positive.
-(2) Often there seems to be a low MO2 vaule at about 5 mg/L O2
+*NOTES* : <br>
+-*There's something wired going on with a_0_25nov_2 it seems like many of the raw MO2 values are positive.*
+- *Often there seems to be a low MO2 vaule at about 5 mg/L O2*
 <br>
 
 
@@ -773,6 +779,8 @@ ids <- labchart_tidy_fish %>%
   dplyr::distinct(id) %>% 
   pull(id) %>% 
   as.list()
+
+MO2_plot_list <-  list()
 
 # 1) Open the PDF device once
 pdf(
@@ -809,10 +817,16 @@ for (id_i in ids) {
   
   # Instead of saving each plot separately, just print it
   print(plot)
+  
+  MO2_plot_list[[id_i]] <- plot
 }
 
 # 3) Close the PDF device *after* the loop
 dev.off()
+
+for (p in MO2_plot_list) {
+  print(p)
+}
 ```
 
 
@@ -880,6 +894,8 @@ ids <- labchart_tidy_fish %>%
   dplyr::distinct(id) %>% 
   dplyr::pull()
 
+pcrit_chabot_list <- list()
+
 # Open a single PDF device
 pdf(file = file.path(output_fig_pcrit_chabot_wd, "combined_chabot_plots.pdf"), 
     width = 8, height = 6)
@@ -905,6 +921,32 @@ for (id_i in ids) {
 # Close the PDF device *after* the loop
 dev.off()
 ```
+<br>
+Printing in htlm document 
+
+```{r}
+ids <- labchart_tidy_fish %>% 
+  dplyr::distinct(id) %>% 
+  dplyr::pull()
+
+for (id_i in ids) {
+  
+  r2 <- pcrit_model_df %>% 
+    dplyr::filter(id == id_i) %>% 
+    dplyr::mutate(pcrit_r2 = round(pcrit_r2, 3)) %>% 
+    dplyr::pull(pcrit_r2)
+  
+  # Generate and render the plot
+  plotO2crit(o2critobj = pcrit_models[[id_i]])
+  
+  # Add a title
+  mtext(
+    text = paste0(id_i, " (R2 = ", r2, ")"),
+    side = 3, line = 2, adj = 0,
+    col = "blue", font = 2, cex = 1.2
+  )
+}
+```
 
 
 ## calc_pcrit()
@@ -921,17 +963,17 @@ Here's a function to calculate Pcrit, we are using a function called calc_pcrit 
 
 Parameters to consider <br>
 
-- *avg_top_n*: for alpha method, a numeric value representing the number of top α0 (MO2/PO2) values to average together to estimate α. Default is 1. We recommend no more than 3 to avoid diminishing the α value with sub-maximal observations. <br>
+- **avg_top_n**: for alpha method, a numeric value representing the number of top α0 (MO2/PO2) values to average together to estimate α. Default is 1. We recommend no more than 3 to avoid diminishing the α value with sub-maximal observations. <br>
 
-- *level*: for Sub_PI method, Percentage at which the prediction interval should be constructed. <br>
+- **level**: for Sub_PI method, Percentage at which the prediction interval should be constructed. <br>
 
-- *iqr*: Only for Sub_PI. Removes mo2 observations that are this many interquartile ranges away from the mean value for the oxyregulating portion of the trial. If this filtering is not desired, set to infinity.  <br>
+- **iqr**: Only for Sub_PI. Removes mo2 observations that are this many interquartile ranges away from the mean value for the oxyregulating portion of the trial. If this filtering is not desired, set to infinity.  <br>
 
-- *NLR_m*: only applies to NLR. Pcrit is defined as the PO2 at which the slope of the best fitting function equals NLR_m (after the MO2 data are normalized to the 90% quantile). Default is 0.065 <br>
+- **NLR_m**: only applies to NLR. Pcrit is defined as the PO2 at which the slope of the best fitting function equals NLR_m (after the MO2 data are normalized to the 90% quantile). Default is 0.065 <br>
 
-- *MR*: A numeric value for the metabolic rate at which pcrit_alpha and pcrit_LLO should be returned. If not supplied by the user, then the mean MO2 of the "oxyregulating" portion of the curve is applied for pcrit_alpha and NA is returned for pcrit_LLO. <br>
+- **MR**: A numeric value for the metabolic rate at which pcrit_alpha and pcrit_LLO should be returned. If not supplied by the user, then the mean MO2 of the "oxyregulating" portion of the curve is applied for pcrit_alpha and NA is returned for pcrit_LLO. <br>
 
-- *mo2_threshold*: A single numeric value above which mo2 values are ignored for alpha Pcrit estimation. Useful to removing obviously erroneous values. Default is Inf.
+- **mo2_threshold**: A single numeric value above which mo2 values are ignored for alpha Pcrit estimation. Useful to removing obviously erroneous values. Default is Inf.
 
 ### Formate data
 
@@ -1068,3 +1110,49 @@ for (id_i in ids) {
 # Close the PDF device *after* the loop
 dev.off()
 ```
+
+<br>
+Plotting in the html 
+
+```{r}
+ids <- labchart_tidy_fish_100c %>% 
+  dplyr::distinct(id) %>% 
+  pull(id) %>% 
+  as.list()
+
+for (id_i in ids) {
+  
+  id_name <- id_i
+  
+  mo2_data <- labchart_tidy_fish_100c %>% 
+    dplyr::filter(id == id_i)
+  
+  MR_set <- mo2_data$SMR[1] %>% as.numeric()
+  
+  tryCatch({
+    # Generate and render the plot
+    plot_pcrit(
+      po2 = mo2_data$o2, 
+      mo2 = mo2_data$MO2, 
+      method = 'All',
+      avg_top_n = 1, 
+      level = 0.95, 
+      iqr = 1.5, 
+      NLR_m = 0.065, 
+      MR = MR_set, 
+      mo2_threshold = Inf, 
+      return_models = FALSE, 
+      showNLRs = FALSE
+    )
+    
+    # Add a title in the top-left corner
+    mtext(text = paste(id_name),
+          side = 3, line = 2, adj = 0, # Top margin, aligned to left
+          col = "blue", font = 2, cex = 1.2)
+    
+  }, error = function(e) {
+    message("Skipping channel ", id_name, " due to error: ", conditionMessage(e))
+  })
+}
+```
+

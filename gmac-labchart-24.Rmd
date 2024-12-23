@@ -1,21 +1,53 @@
 ---
 title: "gmac-lab-chart"
 author: "Jake Martin"
-date: "2024-12-22"
-output: html_document
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  html_document:
+    code_download: true
+    code_folding: hide
+    depth: 4
+    number_sections: no
+    theme:  cosmo
+    toc: yes
+    toc_float: yes
+    toc_depth: 4
+  pdf_document:
+    toc: yes
+knit: |
+  (function(input, ...) {
+    rmarkdown::render(
+      input,
+      output_file = paste0(
+       'index.html'
+      ),
+      envir = globalenv()
+    )
+  })
 ---
 
 #########################
 # READ ME 
 #########################
 
-This R code is used to estimate mo2 and Pcrit (commonly understood as the threshold below which oxygen consumption rate can no longer be sustained) in the Common galaxias (Galaxias maculatus). The assocated article is "The role of osmorespiratory compromise in hypoxia tolerance of the purportedly oxyconforming teleost *Galaxias maculatus*"
+**SUMMARY** <br>
+This R code is used to estimate MO2 and Pcrit (commonly understood as the threshold below which oxygen consumption rate can no longer be sustained) in the Common galaxias (Galaxias maculatus). The associated article is "The role of osmorespiratory compromise in hypoxia tolerance of the purportedly oxyconforming teleost *Galaxias maculatus*"
+
+**AUTHORS**<br>
+
+
+**AFFILIATIONS** <br>
+
+**AIM** <br>
+
 
 #########################
 # Knit settings 
 #########################
 
-```{r setup, include = FALSE}
+These are the settings for the html output. We will use this to make out index file on Git
+
+```{r setup}
 #kniter seetting
 knitr::opts_chunk$set(
 message = FALSE,
@@ -29,17 +61,19 @@ tidy = TRUE
 # Contact
 #########################
 
-Jake M. Martin
+**Jake M. Martin** <br>
 
-Email: jake.martin@deakin.edu.au (or jake.martin.research@gmail.com)
+**Email**: jake.martin@deakin.edu.au (or jake.martin.research@gmail.com) <br>
 
-GitHub:https://github.com/JakeMartinResearch
+**Web**: jake.martin.org <br>
 
-Web: https://jakemartin.org/
+**GitHub**: https://github.com/JakeMartinResearch <br>
 
 #########################
 # Required packages
 #########################
+
+These are the R packages required for this script. You will need to install a package called pacman to run the p_load function. 
 
 ```{r, message=FALSE, results='hide'}
 # this installs and load packages
@@ -97,9 +131,9 @@ pacman::p_load("ggplot2",
 # Functions (custom)
 #############
 
-Here are some of the custom function used in the script. They are authored by Chabot D.
+Here are some custom function used within this script. <br> 
 
-## calcSMR
+**calcSMR**: authored by Chabot D. used to estimate SMR with several different methods
 
 ```{r}
 calcSMR = function(Y, q=c(0.1,0.15,0.2,0.25,0.3), G=1:4){
@@ -127,9 +161,7 @@ calcSMR = function(Y, q=c(0.1,0.15,0.2,0.25,0.3), G=1:4){
 ```
 
 
-## calcO2crit
-
-Making the calcO2crit function 
+**calcO2crit**: authored by Chabot D. used to estimate O2crit (Pcript)
 
 ```{r}
 calcO2crit <- function(Data, SMR, lowestMO2=NA, gapLimit = 4,
@@ -242,7 +274,7 @@ AddedPoints = which(HighMO2))
 ```
 
 
-## plotO2crit
+**plotO2crit**: used to plot the modes used for the calcO2crit function
 
 ```{r}
 plotO2crit <- function(o2critobj, plotID="",
@@ -332,20 +364,14 @@ cex=o2crit.cex, adj=c(-0.1,0.5))
 
 ## Input
 
-The current working directory 
+**meta_files_wd**: Directory for the metadata
 
 ```{r}
 wd <- getwd()
-```
-
-
-Directory for the metadata
-
-```{r}
 meta_files_wd <- paste0(wd, "./meta-data") # creates a variable with the name of the wd we want to use
 ```
 
-Directory for Labchart estimated slopes
+**labchart_wd**: Directory for Labchart estimated slopes
 
 ```{r}
 labchart_wd <- paste0(wd, "./lab-chart-slopes")
@@ -353,14 +379,7 @@ labchart_wd <- paste0(wd, "./lab-chart-slopes")
 
 ## Output
 
-This code creates a new folder for data output called tidy-output-data, we then save this wd as the output_wd
-
-```{r}
-output_data_wd <- paste0(wd, "./output-data")
-ifelse(!dir.exists("output-data"), dir.create("output-data"), "Folder already exists")
-```
-
-This is where we will put the figures
+**output_fig_wd**: this is where we will put the figures
 
 ```{r}
 output_fig_wd <- paste0(wd, "./output-fig")
@@ -373,7 +392,7 @@ ifelse(!dir.exists("output-fig"), dir.create("output-fig"), "Folder already exis
 
 ## Slopes (MO2)
 
-These are the slopes mainly extracted in LabChart during each phase of the experiment
+**labchart_df**: We have imported the slopes extracted in LabChart during each phase of the experiment
 
 ```{r}
  setwd(labchart_wd)
@@ -461,9 +480,9 @@ labchart_df <- bind_rows(labchart_list) %>%
 
 ## Metadata
 
-This is the meta data for each chamber
+**metadata**: This is the meta data for each chamber <br>
 
-We are also adding volume based on chamber type.
+*Note*: We are also adding volume based on chamber type.
 
 ```{r}
 setwd(meta_files_wd)
@@ -512,6 +531,21 @@ n <- labchart_tidy %>%
 paste0("n = ", n)
 ```
 
+```{r}
+labchart_tidy %>% 
+  dplyr::group_by(salinity_group) %>% 
+  dplyr::reframe('n total' = length(unique(id))) %>% 
+  gt() %>% 
+  cols_label(
+    salinity_group = "Salinity group"
+  ) %>% 
+  cols_align(
+    align = "center", 
+    columns = everything()
+  )
+```
+
+
 
 ## Filtering MO2
 
@@ -558,9 +592,10 @@ labchart_tidy_fish <- labchart_tidy_fish %>%
   dplyr::left_join(., smr_3l_means, by = "id")
 ```
 
+<br>
 Here I am using the calcSMR function to estimate SMR. We use mean of the lowest normal distribution (MLND) where CVmlnd < 5.4 and the mean of the lower 20% quantile (q0.2) were CVmlnd > 5.4, as described in Chabot D, Steffensen JF, Farrell AP (2016) https://doi.org/10.1111/jfb.12845. If CVmlnd is not calculated we used q0.2. 
 
-```{r}
+```{r, echo=FALSE}
 labchart_chabot_smr <- labchart_tidy_fish %>%
   dplyr::filter(phase == "smr")
 
@@ -874,23 +909,29 @@ dev.off()
 
 ## calc_pcrit()
 
-Here using the *100 closed trials* we will estimate Pcrit (commonly understood as the threshold below which oxygen consumption rate can no longer be sustained), based on paired PO2 and MO2 values with five popular techniques for Pcrit calculation: the traditional breakpoint metric (broken stick regression), the nonlinear regression metric (Marshall et al. 2013), the sub-prediction interval metric (Birk et al. 2019), the alpha-based Pcrit method (Seibel et al. 2021), and the linear low O2 (LLO) method (Reemeyer & Rees 2019).
+Here using the *100 closed trials* we will estimate Pcrit (commonly understood as the threshold below which oxygen consumption rate can no longer be sustained), based on paired PO2 and MO2 values with five popular techniques for Pcrit calculation: the traditional breakpoint metric (broken stick regression), the nonlinear regression metric (Marshall et al. 2013), the sub-prediction interval metric (Birk et al. 2019), the alpha-based Pcrit method (Seibel et al. 2021), and the linear low O2 (LLO) method (Reemeyer & Rees 2019).  <br>
 
-https://search.r-project.org/CRAN/refmans/respirometry/html/calc_pcrit.html
+https://search.r-project.org/CRAN/refmans/respirometry/html/calc_pcrit.html  <br>
 
-Marshall et al (2013) suggest nonlinear regression (NLR)
+Marshall et al (2013) suggest nonlinear regression (NLR)  <br>
 
-Here's a function to calculate Pcrit, we are using a function called calc_pcrit from the respirmetery package.
+Here's a function to calculate Pcrit, we are using a function called calc_pcrit from the respirmetery package.  <br>
 
 ### !parameters!
 
-parameters to consider
-*avg_top_n*: for alpha method, a numeric value representing the number of top α0 (MO2/PO2) values to average together to estimate α. Default is 1. We recommend no more than 3 to avoid diminishing the α value with sub-maximal observations.
-*level*: for Sub_PI method, Percentage at which the prediction interval should be constructed.
-*iqr*: Only for Sub_PI. Removes mo2 observations that are this many interquartile ranges away from the mean value for the oxyregulating portion of the trial. If this filtering is not desired, set to infinity. 
-*NLR_m*: only applies to NLR. Pcrit is defined as the PO2 at which the slope of the best fitting function equals NLR_m (after the MO2 data are normalized to the 90% quantile). Default is 0.065
-*MR*: A numeric value for the metabolic rate at which pcrit_alpha and pcrit_LLO should be returned. If not supplied by the user, then the mean MO2 of the "oxyregulating" portion of the curve is applied for pcrit_alpha and NA is returned for pcrit_LLO.
-*mo2_threshold*: A single numeric value above which mo2 values are ignored for alpha Pcrit estimation. Useful to removing obviously erroneous values. Default is Inf.
+Parameters to consider <br>
+
+- *avg_top_n*: for alpha method, a numeric value representing the number of top α0 (MO2/PO2) values to average together to estimate α. Default is 1. We recommend no more than 3 to avoid diminishing the α value with sub-maximal observations. <br>
+
+- *level*: for Sub_PI method, Percentage at which the prediction interval should be constructed. <br>
+
+- *iqr*: Only for Sub_PI. Removes mo2 observations that are this many interquartile ranges away from the mean value for the oxyregulating portion of the trial. If this filtering is not desired, set to infinity.  <br>
+
+- *NLR_m*: only applies to NLR. Pcrit is defined as the PO2 at which the slope of the best fitting function equals NLR_m (after the MO2 data are normalized to the 90% quantile). Default is 0.065 <br>
+
+- *MR*: A numeric value for the metabolic rate at which pcrit_alpha and pcrit_LLO should be returned. If not supplied by the user, then the mean MO2 of the "oxyregulating" portion of the curve is applied for pcrit_alpha and NA is returned for pcrit_LLO. <br>
+
+- *mo2_threshold*: A single numeric value above which mo2 values are ignored for alpha Pcrit estimation. Useful to removing obviously erroneous values. Default is Inf.
 
 ### Formate data
 
@@ -906,7 +947,7 @@ labchart_tidy_fish_100c_n <- labchart_tidy_fish_100c %>%
 
 paste0("n for 100 closed = ", labchart_tidy_fish_100c_n)
 ```
-
+ <br>
 First we will build a model with 3 SMR values and all the 75c and 50c (or 100c) data
 
 ```{r}
@@ -961,6 +1002,9 @@ for (id_i in ids) {
   }
 }
 ```
+
+<br>
+Combined all the Pcrit model estimates together 
 
 ```{r}
 pcirt <- bind_rows(combined_pcirt_list)

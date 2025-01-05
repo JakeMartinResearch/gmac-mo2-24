@@ -549,6 +549,29 @@ labchart_tidy %>%
   )
 ```
 
+## Filtering trials
+
+We will remove some triasl which had errors. These are as follows: <br>
+
+-	A_0_25nov_3 needs to be removed (fish died)
+-	B_0_26nov_4 flatlined early
+-	C_0_22nov_2 accidentally opened the chamber early
+-	C_9_26nov_2 stopped trial early, took too long
+-	C_9_26nov_4 stopped trial early, took too long
+-	D_9_27nov_3 sensor was jumpy and end points were hard to confidently ID visually <br>
+
+Remove list 
+
+```{r}
+remove_trial_error <- c("A_0_25nov_3", "B_0_26nov_4", "C_0_22nov_2", "C_9_26nov_2", "C_9_26nov_4", "D_9_27nov_3")
+```
+<br>
+
+```{r}
+labchart_tidy <- labchart_tidy %>% 
+  dplyr::filter(!(id %in% remove_trial_error))
+```
+
 
 
 ## Filtering MO2

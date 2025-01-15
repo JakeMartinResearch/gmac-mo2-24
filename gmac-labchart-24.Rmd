@@ -131,9 +131,9 @@ pacman::p_load("ggplot2",
 ```
 
 
-#############
+####################
 # Functions (custom)
-#############
+####################
 
 Here are some custom function used within this script. <br> 
 
@@ -166,6 +166,8 @@ calcSMR = function(Y, q=c(0.1,0.15,0.2,0.25,0.3), G=1:4){
 
 
 **calcO2crit**: authored by Chabot D. used to estimate O2crit (Pcript)
+
+***Note: O2 is assumed to be in percentage of dissolved oxygen (DO) to work***
 
 ```{r}
 calcO2crit <- function(Data, SMR, lowestMO2=NA, gapLimit = 4,
@@ -486,7 +488,7 @@ labchart_df <- bind_rows(labchart_list) %>%
 
 **metadata**: This is the meta data for each chamber <br>
 
-*Note*: We are also adding volume based on chamber type.
+*Note: We are also adding volume based on chamber type.*
 
 ```{r}
 setwd(meta_files_wd)
@@ -551,7 +553,7 @@ labchart_tidy %>%
 
 ## Filtering trials
 
-We will remove some triasl which had errors. These are as follows: <br>
+We will remove some trials which had errors. These are as follows: <br>
 
 -	A_0_25nov_3 needs to be removed (fish died)
 -	B_0_26nov_4 flatlined early
@@ -560,18 +562,13 @@ We will remove some triasl which had errors. These are as follows: <br>
 -	C_9_26nov_4 stopped trial early, took too long
 -	D_9_27nov_3 sensor was jumpy and end points were hard to confidently ID visually <br>
 
-Remove list 
 
 ```{r}
 remove_trial_error <- c("A_0_25nov_3", "B_0_26nov_4", "C_0_22nov_2", "C_9_26nov_2", "C_9_26nov_4", "D_9_27nov_3")
-```
-<br>
 
-```{r}
 labchart_tidy <- labchart_tidy %>% 
   dplyr::filter(!(id %in% remove_trial_error))
 ```
-
 
 
 ## Filtering MO2
@@ -579,30 +576,61 @@ labchart_tidy <- labchart_tidy %>%
 Here we apply the following filters to the MO2 data: <br>
 
 - Remove the first 5 SMR cycles (burn in)
-- *?Remove all positive MO2 (data has not been subject to any transformations yet)* ; should we do this?
+- Remove all positive raw slopes
 - Remove all MO2 calculated using less then 60 data points (5 min) 
-- Remove all MO2 calculated when phase 50 close (50c) had high O2 (o2 < 6) 
+- Remove all MO2 calculated if o2 increases in a closed phase (i.e. trial has ended) <br>
 
+Here we remove the first 5 SMR cycles, positive raw slopes and MO2 calculated using less then 60 data points.
 
 ```{r}
 cycle_burn <- 0:4
 
-labchart_tidy_fish <- labchart_tidy %>%
+labchart_tidy <- labchart_tidy %>%
   dplyr::filter(!(cycle %in% cycle_burn) & 
                   mo2corr < 0 & 
                   n > 60 &
                   chamber_condition == "fish"
                 )
+```
+
+<br>
+Now we remove the points after the chamber is opened (i.e. o2 increases in a closed phase)
+
+```{r}
+filter_o2_increase <- function(group) {
+  group <- group %>%
+    mutate(o2_diff = o2 - lag(o2)) # Calculate the difference in 'o2'
   
-# 50c remove case with high o2
-labchart_tidy_fish <- labchart_tidy_fish %>% 
-    dplyr::filter(!(phase == "50c" & 
-                      o2 > 6)) # Removing any period in 50c where o2 was to high (opened)
+  # Find the first index where 'o2_diff' exceeds 1
+  cutoff_index <- which(group$o2_diff > 1)[1]
+  
+  # Filter the data up to the cutoff index, or return the full group if no cutoff
+  if (!is.na(cutoff_index)) {
+    group <- group[1:(cutoff_index - 1), ]
+  }
+  
+  return(group)
+}
+  
+# Apply the function to each group of 'chamber_id'
+labchart_tidy_fish_closed <- labchart_tidy %>% 
+  dplyr::filter(phase != "smr") %>%
+  group_by(id) %>%
+  group_split() %>%
+  lapply(filter_o2_increase) %>%
+  bind_rows() %>%
+  select(-o2_diff)
+
+labchart_tidy_fish_smr <- labchart_tidy %>% 
+  dplyr::filter(phase == "smr")
+
+labchart_tidy_fish <- rbind(labchart_tidy_fish_smr, labchart_tidy_fish_closed) %>% 
+  dplyr::arrange(id, order)
 ```
 
 ## SMR
 
-Here we will estimate SMR using the mean of the lowest 3 vaules
+Here we will estimate SMR using the mean of the lowest 3 values
 
 ```{r}
 smr_3l_means <- labchart_tidy_fish %>%
@@ -622,7 +650,7 @@ labchart_tidy_fish <- labchart_tidy_fish %>%
 <br>
 Here I am using the calcSMR function to estimate SMR. We use mean of the lowest normal distribution (MLND) where CVmlnd < 5.4 and the mean of the lower 20% quantile (q0.2) were CVmlnd > 5.4, as described in Chabot D, Steffensen JF, Farrell AP (2016) https://doi.org/10.1111/jfb.12845. If CVmlnd is not calculated we used q0.2. 
 
-```{r, echo=FALSE}
+```{r}
 labchart_chabot_smr <- labchart_tidy_fish %>%
   dplyr::filter(phase == "smr")
 
@@ -685,39 +713,35 @@ labchart_tidy_fish <- labchart_tidy_fish %>%
 
 ## Transforming MO2 vaules
 
-Here we are transforming the MO2 vaules 
+Here we are transforming the MO2 values 
 
-- MO2 = absolute value of the background and leak corrected mo2 slope from labchart (mo2corr)
+- MO2 = absolute value of the background and leak corrected mo2 slope from Labchart (mo2corr) times the net volume of the chamber (volume - fish mass), times 60, times 60, to achieve MO2 mg/h.
 - MO2_g = MO2 divided by fish mass
 - SMR = absolute value of the mean of the three lowest MO2 during the SMR phase (smr_l3)
 - SMR_g = SMR divided by fish mass
-- SMR_CHABOT = absolute value of the SMR estimates using Chabot et al recommendations (smr_chabot)
+- SMR_CHABOT = absolute value of the SMR estimates using Chabot et al. recommendations (smr_chabot)
 - SMR_g = SMR_CHABOT divided by fish mass
 - DO = dissolved oxygen percentage calculated from o2 values (mg/L) using the recorded temperature, salinity, and a constant atmospheric pressure (1013.25)
 
-*NOTE* : need to chat about units and corrections. I know there are some parts below that are incorrect. 
 
 ```{r}
 # Combine back into one data frame
 labchart_tidy_fish <- labchart_tidy_fish %>% 
-    dplyr::mutate(MO2 = abs(mo2corr),
+    dplyr::mutate(DO = conv_o2(
+                   o2 = o2,
+                   from = "mg_per_l",
+                   to = "percent_a.s.",
+                   temp = temp, #C
+                   sal = measured_salinity,
+                   atm_pres = 1013.25),
+                  net_volume = volume - mass/1000,
+                  MO2 = abs(mo2corr)*net_volume*60*60,
                   MO2_g = MO2/mass,
-                  SMR = abs(smr_l3),
+                  SMR = abs(smr_l3)*net_volume*60*60,
                   SMR_g = SMR/mass,
-                  SMR_CHABOT = abs(smr_chabot),
-                  SMR_CHABOT_g = SMR_CHABOT/mass,
-                  DO = conv_o2(
-                  o2 = o2,
-                  from = "mg_per_l",
-                  to = "percent_a.s.",
-                  temp = temp, #C
-                  sal = measured_salinity,
-                  atm_pres = 1013.25),
-                  net_volume = volume - mass, # Following instructions from Luis
-                  MO2_BG = abs(mo2*net_volume*60*60), # Following instructions from Luis 
-                  BG = bground*volume*60*60, # Following instructions from Luis (would need to add leak data)
-                  MO2_adj = MO2_BG + BG, # Following instructions from Luis 
-    )
+                  SMR_CHABOT = abs(smr_chabot)*net_volume*60*60,
+                  SMR_CHABOT_g = SMR_CHABOT/mass
+                  )
 ```
 
 
@@ -729,8 +753,7 @@ Here we plot all MO2 data. This is the absolute MO2, corrected for background re
 
 ```{r}
 labchart_tidy_fish %>% 
-  dplyr::filter(chamber_condition == "fish") %>% 
-    ggplot(aes(y = MO2_g, x = o2, colour = id)) + # Default aesthetics
+  ggplot(aes(y = MO2_g, x = o2, colour = id)) + # Default aesthetics
   geom_point(show.legend = FALSE) +
   geom_smooth(aes(group = id), method = "lm", se = FALSE, colour = scales::alpha("black", 0.5)) + # Transparent black lines
   geom_smooth(method = "lm", se = TRUE, colour = "red") + # Overall smooth line
@@ -743,12 +766,32 @@ labchart_tidy_fish %>%
   )
 ```
 <br>
+
+Same plot but without SMR values. 
+
+```{r}
+labchart_tidy_fish %>% 
+  dplyr::filter(phase != "smr") %>% 
+  ggplot(aes(y = MO2_g, x = o2, colour = id)) + # Default aesthetics
+  geom_point(show.legend = FALSE) +
+  geom_smooth(aes(group = id), method = "lm", se = FALSE, colour = scales::alpha("black", 0.5)) + # Transparent black lines
+  geom_smooth(method = "lm", se = TRUE, colour = "red") + # Overall smooth line
+  geom_smooth(se = TRUE, colour = "red", linetype = "dashed") +
+  theme_clean() +
+  labs(
+    subtitle = "All values",
+    x = "O2",
+    y = "MO2 (g)"
+  )
+```
+
+
+<br>
 Looking at the difference responses in the two salinity groups. It's appears more variable in freshwater.
 
 ```{r}
 labchart_tidy_fish %>% 
-  dplyr::filter(chamber_condition == "fish") %>% 
-    ggplot(aes(y = MO2_g, x = o2, colour = id)) + # Default aesthetics
+  ggplot(aes(y = MO2_g, x = o2, colour = id)) + # Default aesthetics
   geom_point(show.legend = FALSE) +
   geom_smooth(aes(group = id), method = "lm", se = FALSE, colour = scales::alpha("black", 0.5)) + # Transparent black lines
   geom_smooth(method = "lm", se = TRUE, colour = "red") + # Overall smooth line
@@ -762,13 +805,13 @@ labchart_tidy_fish %>%
   )
 ```
 
+
 <br>
 Looking at the difference chamber types
 
 ```{r}
 labchart_tidy_fish %>% 
-  dplyr::filter(chamber_condition == "fish") %>% 
-    ggplot(aes(y = MO2_g, x = o2, colour = id)) + # Default aesthetics
+  ggplot(aes(y = MO2_g, x = o2, colour = id)) + # Default aesthetics
   geom_point(show.legend = FALSE) +
   geom_smooth(aes(group = id), method = "lm", se = FALSE, colour = scales::alpha("black", 0.5)) + # Transparent black lines
   geom_smooth(method = "lm", se = TRUE, colour = "red") + # Overall smooth line
@@ -785,11 +828,7 @@ labchart_tidy_fish %>%
 <br>
 Plotting MO2 estimates for each fish. The dashed red line is Chabot SMR methods, and the solid line is the mean of the lowest 3 measures (excluding the first 5 cycles) <br>
 
-*NOTES* : <br>
--*There's something wired going on with a_0_25nov_2 it seems like many of the raw MO2 values are positive.*
-- *Often there seems to be a low MO2 vaule at about 5 mg/L O2*
-<br>
-
+*Notes: There's something wired going on with a_0_25nov_2 it seems like many of the raw MO2 values are positive.*
 
 ```{r}
 # Create output directory if needed
@@ -859,7 +898,9 @@ for (p in MO2_plot_list) {
 
 ## Chabot method
 
-Here we will calculate Pcrit using Chabot method and function calcO2crit. We are using our estimates for SMR (mean of lowest three)
+Here we will calculate Pcrit using Chabot method and function calcO2crit. We are using our estimates for SMR (mean of lowest three). <br>
+
+This function uses the fifth percentile of the MO2 values observed at dissolved oxygen levels ≥ 80% air saturation as the criterion to assess low  MO2 values. The algorithm then identifies all the MO2 measurements greater than this minimally acceptable MO2 value. Within this sub-set, it identifies the ̇ MO2 measurement made at the lowest DO and thereafter considers this DO as candidate for breakpoint (named pivotDO in the script). A regression is then calculated using observations at DO levels < pivotDO, and a first estimate of O2crit is calculated as the intersection of this regression line with the horizontal line representing SMR. The script then goes through validation steps to ensure that the slope of the regression is not so low that the line, projected to normoxic DO levels, passes below any MO2 values observed in normoxia. It also ensures that the intercept is not greater than zero. Corrective measures are taken if such problems are encountered.
 
 ```{r}
 ids <- labchart_tidy_fish %>% 
@@ -901,6 +942,15 @@ pcrit_models[[id_i]] <- o2crit
 pcrit_model_df <- bind_rows(pcrit_model_df_list)
 ```
 
+<br>
+Here's the resulting data frame, we may want to filter these based on visual assessment of the models. 
+
+```{r}
+pcrit_conforming_list <- pcrit_model_df %>% 
+  dplyr::filter(pcrit_nb_mo2_conforming > 0) %>% 
+  pull(id)
+```
+
 
 ### Ploting o2 crit
 
@@ -930,12 +980,22 @@ for (id_i in ids) {
     dplyr::mutate(pcrit_r2 = round(pcrit_r2, 3)) %>% 
     dplyr::pull(pcrit_r2)
   
+  conforming <- pcrit_model_df %>% 
+    dplyr::filter(id == id_i) %>% 
+    dplyr::mutate(pcrit_nb_mo2_conforming = round(pcrit_nb_mo2_conforming, 3)) %>% 
+    dplyr::pull(pcrit_nb_mo2_conforming)
+  
+  P <- pcrit_model_df %>% 
+    dplyr::filter(id == id_i) %>% 
+    dplyr::mutate(pcrit_p = round(pcrit_p, 3)) %>% 
+    dplyr::pull(pcrit_p)
+  
   # Generate and render the plot
   plotO2crit(o2critobj = pcrit_models[[id_i]])
   
   # Add a title
   mtext(
-    text = paste0(id_i, " (R2 = ", r2, ")"),
+    text = paste0(id_i, " (R2 = ", r2, "; p = ", P, "; Conforming points = ", conforming, ")"),
     side = 3, line = 2, adj = 0,
     col = "blue", font = 2, cex = 1.2
   )
@@ -944,6 +1004,7 @@ for (id_i in ids) {
 # Close the PDF device *after* the loop
 dev.off()
 ```
+
 <br>
 Printing in htlm document 
 
@@ -959,12 +1020,71 @@ for (id_i in ids) {
     dplyr::mutate(pcrit_r2 = round(pcrit_r2, 3)) %>% 
     dplyr::pull(pcrit_r2)
   
+  conforming <- pcrit_model_df %>% 
+    dplyr::filter(id == id_i) %>% 
+    dplyr::mutate(pcrit_nb_mo2_conforming = round(pcrit_nb_mo2_conforming, 3)) %>% 
+    dplyr::pull(pcrit_nb_mo2_conforming)
+  
+  P <- pcrit_model_df %>% 
+    dplyr::filter(id == id_i) %>% 
+    dplyr::mutate(pcrit_p = round(pcrit_p, 3)) %>% 
+    dplyr::pull(pcrit_p)
+  
   # Generate and render the plot
   plotO2crit(o2critobj = pcrit_models[[id_i]])
   
   # Add a title
   mtext(
-    text = paste0(id_i, " (R2 = ", r2, ")"),
+    text = paste0(id_i, " (R2 = ", r2, "; p = ", P, "; Conforming points = ", conforming, ")"),
+    side = 3, line = 2, adj = 0,
+    col = "blue", font = 2, cex = 1.2
+  )
+}
+```
+
+<br> 
+Setting rules for Pcrit estimate <br>
+- Three consecutive MO2 values below SMR (Frisk et al., 2012)
+
+```{r}
+pcrit_list <- pcrit_model_df %>% 
+  dplyr::filter(pcrit_nb_mo2_conforming > 2) %>% 
+  pull(id)
+
+mean_pcrit <-  pcrit_model_df %>% 
+  dplyr::filter(pcrit_nb_mo2_conforming > 2) %>% 
+  dplyr::reframe(mean = mean(pcrit_vaule)) %>% 
+  pull(mean)
+
+paste0("There are ", length(pcrit_list), " fish with identified Pcrits. ",
+       "The mean Pcrit is ", round(mean_pcrit,2))
+```
+
+
+```{r}
+for (id_i in pcrit_list) {
+  
+  r2 <- pcrit_model_df %>% 
+    dplyr::filter(id == id_i) %>% 
+    dplyr::mutate(pcrit_r2 = round(pcrit_r2, 3)) %>% 
+    dplyr::pull(pcrit_r2)
+  
+  conforming <- pcrit_model_df %>% 
+    dplyr::filter(id == id_i) %>% 
+    dplyr::mutate(pcrit_nb_mo2_conforming = round(pcrit_nb_mo2_conforming, 3)) %>% 
+    dplyr::pull(pcrit_nb_mo2_conforming)
+  
+  P <- pcrit_model_df %>% 
+    dplyr::filter(id == id_i) %>% 
+    dplyr::mutate(pcrit_p = round(pcrit_p, 3)) %>% 
+    dplyr::pull(pcrit_p)
+  
+  # Generate and render the plot
+  plotO2crit(o2critobj = pcrit_models[[id_i]])
+  
+  # Add a title
+  mtext(
+    text = paste0(id_i, " (R2 = ", r2, "; p = ", P, "; Conforming point = ", conforming, ")"),
     side = 3, line = 2, adj = 0,
     col = "blue", font = 2, cex = 1.2
   )

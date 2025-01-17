@@ -542,6 +542,8 @@ n <- labchart_tidy %>%
 
 paste0("n = ", n)
 ```
+<br>
+With 48 from the 0 ppt and 48 from 9 ppt groups
 
 ```{r}
 labchart_tidy %>% 
@@ -613,6 +615,32 @@ labchart_tidy <- labchart_tidy %>%
   dplyr::filter(!(id %in% remove_trial_error))
 ```
 
+We now have **58 fish** with MO2 data
+
+```{r}
+n <- labchart_tidy %>% 
+  dplyr::filter(chamber_condition == "fish") %>% 
+  dplyr::distinct(id) %>% 
+  nrow(.)
+
+paste0("n = ", n)
+```
+
+With 45 in the 0 ppt group and 45 in the 9 ppt group 
+
+```{r}
+labchart_tidy %>% 
+  dplyr::group_by(salinity_group) %>% 
+  dplyr::reframe('n total' = length(unique(id))) %>% 
+  gt() %>% 
+  cols_label(
+    salinity_group = "Salinity group"
+  ) %>% 
+  cols_align(
+    align = "center", 
+    columns = everything()
+  )
+```
 
 ## Filtering MO2 estimates
 
@@ -785,7 +813,7 @@ labchart_tidy_fish <- labchart_tidy_fish %>%
 
 
 #######################
-# Visualise 
+# Visualising data
 #######################
 
 Here we plot all oxygen consumption (MO2; mg O2/g/h) by dissolved oxygen percentage (DO) for all fish, including all SMR estimates. 
@@ -896,7 +924,7 @@ time_bin_df %>%
                 width = 0.15, colour = "black") +
   # Add horizontal error bars
   geom_errorbarh(aes(xmin = mean_o2 - o2_sd, xmax = mean_o2 + o2_sd), 
-                 height = 0.005, colour = "black") +
+                 height = 0.4, colour = "black") +
   theme_clean() +
   labs(
     subtitle = "All values with error bars",
@@ -983,147 +1011,11 @@ for (p in MO2_plot_list) {
 
 Here we are following the methods Urbina et al. (2012) with an incremental regression analyses, in order to determine the best fit for the data.<br>
 
-This analysis evaluated each polynomial order equation starting at zero and then increasing to the third order. This permitted a mathematical assessment of whether the data best fitted a single linear relationship (i.e. the fish were oxyconforming), or whether a PO2 crit value could be determined as the intersection point of two distinct linear relationships (one at hypoxic oxygen concentrations, the other at normoxic; i.e. oxyregulation). This analysis evaluated each polynomial order equation starting at zero and then increasing to the third order. This permitted a mathematical assessment of whether the data best fitted a single linear relationship (i.e. the fish were oxyconforming), or whether a PO2 crit value could be determined as the intersection point of two distinct linear relationships (one at hypoxic oxygen concentrations, the other at normoxic; i.e. oxyregulation). <br>
+This analysis evaluated each polynomial order equation starting at zero and then increasing to the third order. This permitted a mathematical assessment of whether the data best fitted a single linear relationship (0th-order polynomial; suggesting the fish were oxyconforming and do not reach a Pcrit), or whether a PO2 crit value could be determined as an intersection point of two distinct functions (one at hypoxic oxygen concentrations, the other at normoxic; i.e. oxyregulation).
 
-### No SMR
+### Weighted regressions
 
-I have not included MO2 values calculated during the SMR phase of the experiment, as I was concerned the the high density region would effluence the regression. Specifically, a high density of points at high o2 values could lead to overfitting in that region, while underfitting or misrepresenting trends in lower-density regions (e.g., low o2).
-
-```{r}
-ids <- labchart_tidy_fish %>% 
-  dplyr::distinct(id) %>% 
-  pull(id) %>% 
-  as.list()
-
-model_comparison_list <- list()
-
-for (id_i in ids) {
-
-df_i <- labchart_tidy_fish %>% 
-  dplyr::filter(phase != "smr", id == id_i)
-
-models <- list(
-  lm_0 = lm(MO2 ~ 1, data = df_i),                # 0th-order (constant mean)
-  lm_1 = lm(MO2 ~ o2, data = df_i),               # 1st-order (linear)
-  lm_2 = lm(MO2 ~ poly(o2, 2), data = df_i),      # 2nd-order (quadratic)
-  lm_3 = lm(MO2 ~ poly(o2, 3), data = df_i)       # 3rd-order (cubic)
-)
-
-# Extract metrics to compare models
-model_comparison_list[[id_i]] <- purrr::map_df(models, glance, .id = "model") %>% 
-  dplyr::mutate(id = id_i) %>% 
-  dplyr::select(id, everything())
-
-}
-
-model_comparison <- bind_rows(model_comparison_list) %>% 
-  dplyr::mutate(poly = as.numeric(str_remove_all(model, "lm_")))
-
-model_comparison
-```
-
-Now we are selecting the best fitting model for each fish. Most often the best fitting model is a 0th-order polynomial (n = 36, 62.07%), suggesting that MO2 does not show a statistically significant dependence on the o2. In other words, the metabolic rate does not adjust based on oxygen availability, and there is no clear critical oxygen threshold (Pcrit) where the relationship changes. This is indicative of a **oxyregulator**. <br>
-
-The next most common is a 3rd-order polynomial (n = 16, 27.59%) which may suggest the presences of some kind of oxygen threshold where the relationship changes. <br>
-
-Only five fish (8.62%) appear to have a linear relationship (1st-order polynomial) which would be expected for **oxyconformers**.
-
-```{r}
-best_model <- model_comparison %>% 
-  dplyr::group_by(id) %>% 
-  dplyr::arrange(desc(AIC)) %>% 
-  dplyr::slice(1) %>% 
-  dplyr::ungroup()
-
-total_fish <- nrow(best_model)
-
-model_summary <- best_model %>% 
-  dplyr::group_by(poly) %>% 
-  dplyr::reframe(n = length(id),
-                 percent = round((n/total_fish)*100,2))
-
-model_summary
-```
-
-Visualising the regressions
-
-```{r}
-ids <- labchart_tidy_fish %>% 
-  dplyr::distinct(id) %>% 
-  pull(id) %>% 
-  as.list()
-
-model_comparison_plot <- list()
-
-for (id_i in ids) {
-  
-  poly_i <- best_model %>% 
-    dplyr::filter(id == id_i) %>%
-    dplyr::pull(poly)
-  
-  poly_i_name <- best_model %>% 
-    dplyr::filter(id == id_i) %>%
-    dplyr::mutate(name = case_when(
-      poly == 0 ~ "0th-order polynomial",
-      poly == 1 ~ "1st-order polynomial",
-      poly == 2 ~ "2nd-order polynomial",
-      poly == 3 ~ "3rd-order polynomial",
-      TRUE ~ "ERROR"
-    )) %>% 
-    dplyr::pull(name)
-  
-  r <- best_model %>% 
-    dplyr::filter(id == id_i) %>%
-    dplyr::pull(r.squared) %>% 
-    round(., 2)
-  
-  sigma <- best_model %>% 
-    dplyr::filter(id == id_i) %>%
-    dplyr::pull(sigma) %>% 
-    round(., 2)
-  
-  mean_MO2 <- labchart_tidy_fish %>% 
-    dplyr::filter(phase != "smr" & id == id_i) %>%
-    dplyr::reframe(mean = mean(MO2), na.rm = TRUE) %>% 
-    dplyr::pull(mean)
-  
-   x_max <- labchart_tidy_fish %>% 
-    dplyr::filter(phase != "smr" & id == id_i) %>%
-    dplyr::reframe(max = max(o2), na.rm = TRUE) %>% 
-    dplyr::pull(max)
-   
-   y_max <- labchart_tidy_fish %>% 
-    dplyr::filter(phase != "smr" & id == id_i) %>%
-    dplyr::reframe(max = max(MO2), na.rm = TRUE) %>% 
-    dplyr::pull(max)
-
-  plot <- labchart_tidy_fish %>% 
-    dplyr::filter(phase != "smr" & id == id_i) %>% 
-    ggplot(aes(x = o2, y = MO2)) +
-    geom_point() +
-    geom_smooth(method = "lm", formula = y ~ poly(x, poly_i), se = FALSE, colour = "blue") +
-    geom_hline(yintercept = mean_MO2, colour = "grey", linetype = "dashed", linewidth = 1) +
-    annotate("text", x = x_max/2, 
-             y = y_max, 
-             label = paste0(poly_i_name, "\n", "R = ", r, " Sigma = ", sigma), 
-             hjust = 0, vjust = 1, size = 4) +
-    labs(
-    title = paste0(id_i),
-    x = "O2 (mg/L)",
-    y = "MO2 (mg O2 g/h)"
-    ) +
-    theme_minimal()
-  
-  print(plot)
-}
-```
-
-
-### Weighted regression
-
-Here we are doing the same as above but weighting the importance of each data point in fitting the model. Points with higher weights influence the model fit more, while points with lower weights have less impact. We are making sure that High-density regions (e.g. SMR vaules) have lower weights to reduce their over-representation.
-
-This is achieved by dividing the o2 values into bins, computing the frequency of points in each bin, and assigning weights as the inverse of frequency for each point.
+We will use weighted regression to account for a higher density of data at normoxic conditions (i.e. SMR values). Specifically, we are weighting the importance of each data point in fitting the model based on frequency of points in that space. Points that have higher weights influence the model fit more, while points with lower weights have less impact. A high density of points at high o2 values could lead to overfitting in that region, while underfitting or misrepresenting trends in lower-density regions (e.g., low o2 vaules). The weighting is achieved by dividing the o2 values into bins, computing the frequency of points in each bin, and assigning weights as the inverse of frequency for each point.
 
 ```{r}
 ids <- labchart_tidy_fish %>%
@@ -1132,6 +1024,8 @@ ids <- labchart_tidy_fish %>%
   as.list()
 
 weighted_model_comparison_list <- list()
+
+weighted_model_results_list <- list()
 
 for (id_i in ids) {
   
@@ -1142,10 +1036,14 @@ for (id_i in ids) {
   # Calculate weights based on O2 density
   df_i <- df_i %>%
     dplyr::mutate(
-      o2_bin = cut(o2, breaks = 10),  # Divide O2 into 10 bins
-      bin_freq = dplyr::n(),          # Count points in each bin
+      o2_bin = cut(o2, breaks = 10)  # Divide O2 into 10 bins
+    ) %>% 
+    dplyr::group_by(o2_bin) %>% 
+    dplyr::mutate(
+      bin_freq = length(order),          # Count points in each bin
       weight = 1 / bin_freq           # Weight = inverse frequency
-    )
+      ) %>% 
+    ungroup()
   
   # Fit models with weights
   models <- list(
@@ -1159,16 +1057,23 @@ for (id_i in ids) {
   weighted_model_comparison_list[[id_i]] <- purrr::map_df(models, glance, .id = "model") %>%
     dplyr::mutate(id = id_i) %>%
     dplyr::select(id, everything())
+  
+  weighted_model_results_list[[id_i]] <- map_df(models, ~ tidy(.x, conf.int = TRUE), .id = "model") %>%
+    clean_names() %>% 
+    mutate(id = id_i) %>%
+    select(id, everything())
 }
 
-# Combine results into a single data frame
+# Combine dataframes into a single data frame
 weighted_model_comparison <- bind_rows(weighted_model_comparison_list) %>%
   dplyr::mutate(poly = as.numeric(stringr::str_remove_all(model, "lm_")))
 
-weighted_model_comparison
+weighted_model_results <- bind_rows(weighted_model_results_list) %>%
+  dplyr::mutate(poly = as.numeric(stringr::str_remove_all(model, "lm_")))
 ```
 
-Selecting the best fitting models. 
+<br>
+Selecting the best fitting model
 
 ```{r}
 best_weighted_model <- weighted_model_comparison %>% 
@@ -1176,17 +1081,55 @@ best_weighted_model <- weighted_model_comparison %>%
   dplyr::arrange(desc(AIC)) %>% 
   dplyr::slice(1) %>% 
   dplyr::ungroup()
-
-total_fish <- nrow(best_weighted_model)
-
-weighted_model_summary <- best_weighted_model %>% 
-  dplyr::group_by(poly) %>% 
-  dplyr::reframe(n = length(id),
-                 percent = round((n/total_fish)*100,2))
-
-weighted_model_summary
 ```
 
+
+Most often the best fitting model is a 0th-order polynomial (*n* = 32, 55.17%), suggesting that MO2 does not show a statistically significant dependence on the o2. In other words, the metabolic rate does not adjust based on oxygen availability, and there is no clear critical oxygen threshold (Pcrit) where the relationship changes. This is indicative of a **oxyregulator**. <br>
+
+The next most common is a 1st-order polynomial (*n* = 12, 20.69%) which may suggest the presences of linear relationship between o2 and MO2 in some fish, however, to be true evidence of a **oxyconformer** this relationship should be positive (i.e. as o2 falls MO2 also falls). Only 6 of the 12 individuals best modelled with a linear function were positive, and none were statistically significant (Table 1). 
+
+The reaming fish (*n* = 14, 24.14%) had a 2nd- or 3rd-oder polynomial which could suggest the presence of a critical oxygen threshold (Pcrit) where the relationship between o2 and MO2 changes. These would also need to be validated to check the same of the polynomials to deterimine if a Pcirt is present. B
+
+```{r}
+total_fish <- nrow(best_weighted_model)
+
+best_weighted_model %>% 
+  dplyr::group_by(poly) %>% 
+  dplyr::reframe(n = length(id),
+                 percent = round((n/total_fish)*100,2)) %>% 
+   gt() %>% 
+  cols_align(
+    align = "center", 
+    columns = everything()
+  )
+```
+
+
+<br>
+For the 12 fish that had o2 and MO2 relationships best modelled with a linear function, only 6 are were positive relationships (which we would expect if fish were oxyconforming), and none are statistically significant. 
+
+### Table 1
+
+```{r}
+ids_lm_1_list <- best_weighted_model %>% 
+  dplyr::filter(model == "lm_1") %>% 
+  dplyr::pull(id)
+
+weighted_model_results %>% 
+  dplyr::filter(id %in% ids_lm_1_list & model == "lm_1" & term == "o2") %>% 
+  dplyr::mutate(estimate = round(estimate, 4),
+                ci = paste0(round(conf_low,4), "–", round(conf_high,4)),
+                p_value = round(p_value, 3)) %>% 
+  dplyr::select(id, estimate, ci, p_value) %>% 
+  gt() %>% 
+  cols_align(
+    align = "center", 
+    columns = everything()
+  )
+```
+
+
+<br>
 Visualising the regressions
 
 ```{r}
@@ -1198,12 +1141,14 @@ ids <- labchart_tidy_fish %>%
 for (id_i in ids) {
   
   df_i <- labchart_tidy_fish %>%
-     dplyr::filter(id == id_i) %>%
-     dplyr::mutate(
-      o2_bin = cut(o2, breaks = 10),  # Divide O2 into 10 bins
-      bin_freq = dplyr::n(),          # Count points in each bin
+    dplyr::filter(id == id_i) %>% 
+    dplyr::mutate(o2_bin = cut(o2, breaks = 10)) %>% 
+    dplyr::group_by(o2_bin) %>% 
+    dplyr::mutate(
+      bin_freq = length(order),          # Count points in each bin
       weight = 1 / bin_freq           # Weight = inverse frequency
-      )
+      ) %>% 
+    ungroup()
   
   best_weighted_model_i <- best_weighted_model %>% 
     dplyr::filter(id == id_i)
@@ -1261,9 +1206,6 @@ for (id_i in ids) {
 }
 ```
 
-```{r}
-model_summary <- bind_rows(model_summary, weighted_model_summary)
-```
 
 ## Pcrit Chabot method
 

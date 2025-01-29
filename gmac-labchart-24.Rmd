@@ -106,10 +106,11 @@ pacman::p_load("ggplot2",
                 "tidyverse", 
                "janitor", 
                "readxl", 
-               "broom", 
+               "broom.mixed", 
                "data.table", 
                "devtools",
-               "hms", # data tidy
+               "hms",
+               "round_hms", # data tidy
                
                "marginaleffects", 
                "brms", 
@@ -125,6 +126,7 @@ pacman::p_load("ggplot2",
                "qqplotr",
                "respirometry",
                "mclust",
+               "furrr",
                # modelling 
               
                
@@ -139,6 +141,181 @@ pacman::p_load("ggplot2",
 ####################
 
 Here are some custom function used within this script. <br> 
+
+**bayes_incremental_regression_by_id**: A custom function to build Bayesian incremental regressions in parallel <br>
+
+## Note: add case where id = NULL
+
+```{r}
+# Instead we could also use a distributional regression approach, by specifically modelling the variance by DO (e.g. sigma ~ DO). Weighting may not be required in this case, I don't think higher density of vaules in a given space will effect Bayesian estimates like it does in frequentist models. See discourse https://discourse.mc-stan.org/t/weights-in-brm/4278 <br>
+
+bayes_incremental_regression_by_id <- function(id_i, id_name, data, predictor, response, save_models, mod_output_wd) {
+  # Initiate an empty list to store models
+  models <- list()
+  
+  # If id_i and id_name is empty add
+  
+  # Filter data for the current ID
+  df_i <- data %>%
+    dplyr::filter(!!rlang::sym(id_name) == id_i)
+  
+  # Dynamically create formulas
+  formula_lm_0 <- reformulate("1", response)
+  formula_lm_1 <- reformulate(predictor, response)
+  formula_lm_2 <- reformulate(sprintf("poly(%s, 2)", predictor), response)
+  formula_lm_3 <- reformulate(sprintf("poly(%s, 3)", predictor), response)
+  
+  # Fit and store models in the list
+  models[[paste0(id_i, "_lm_0")]] <- brm(
+    bf(formula_lm_0, family = gaussian()), 
+    data = df_i, cores = 4, seed = 143019, save_pars = save_pars(all = save_models),
+    sample_prior = FALSE, silent = TRUE, file = paste0(mod_output_wd, "/", id_i, "_lm_0")
+  )
+  
+  models[[paste0(id_i, "_lm_1")]] <- brm(
+    bf(formula_lm_1, family = gaussian()), 
+    data = df_i, cores = 4, seed = 143019, save_pars = save_pars(all = save_models),
+    sample_prior = FALSE, silent = TRUE, file = paste0(mod_output_wd, "/", id_i, "_lm_1")
+  )
+  
+  models[[paste0(id_i, "_lm_2")]] <- brm(
+    bf(formula_lm_2, family = gaussian()), 
+    data = df_i, cores = 4, seed = 143019, save_pars = save_pars(all = save_models),
+    sample_prior = FALSE, silent = TRUE, file = paste0(mod_output_wd, "/", id_i, "_lm_2")
+  )
+  
+  models[[paste0(id_i, "_lm_3")]] <- brm(
+    bf(formula_lm_3, family = gaussian()), 
+    data = df_i, cores = 4, seed = 143019, save_pars = save_pars(all = save_models),
+    sample_prior = FALSE, silent = TRUE, file = paste0(mod_output_wd, "/", id_i, "_lm_3")
+  )
+  
+  # Return the list of models for the current ID
+  return(models)
+}
+
+```
+
+**load_rds**: A custom function to load all rds models in a directory and store in a list
+
+```{r}
+load_rds <- function(model_dw) {
+  # List all .rds files in the directory
+  model_file_list <- list.files(path = model_dw, pattern = "\\.rds$", full.names = TRUE)
+  
+  # Initialise an empty list to store models
+  model_store_list <- list()
+  
+  # Iterate through each file and load the RDS
+  for (mod_i in model_file_list) {
+    mod <- readRDS(file = mod_i)  # Read the RDS file
+    model_name <- tools::file_path_sans_ext(basename(mod_i))  # Extract the file name without extension
+    model_store_list[[model_name]] <- mod  # Store it in the list
+  }
+  
+  # Return the list of models
+  return(model_store_list)
+}
+```
+
+
+**incremental_regression_bayes_fits**: A custom function for pulling model fits, loo and r2
+
+```{r}
+# Define Function to Process the data for each ID
+incremental_regression_bayes_fits <- function(models) {
+  
+  loo_results_list <- list()
+  
+  # Iterate over the names of the models
+  for (mod_name in names(models)) {
+    # Extract the model
+    mod_i <- models[[mod_name]]
+    
+    # Compute LOO results
+    mod_loo_results_i <- loo::loo(mod_i)
+    
+    # Extract relevant LOO metrics
+    elpd_loo_i <- mod_loo_results_i$elpd_loo
+    p_loo_i <- mod_loo_results_i$p_loo
+    looic_i <- mod_loo_results_i$looic
+    
+    # Create a data frame with metrics
+    df_i <- data.frame(
+      elpd_loo = elpd_loo_i,
+      p_loo = p_loo_i,
+      looic = looic_i,
+      model = mod_name
+    )
+    
+    est_i <- tidy(mod_i, effects = "fixed", conf.int = TRUE) %>% 
+      dplyr::select(term, estimate, conf.low, conf.high) %>% 
+      tidyr::pivot_wider(
+        names_from = term,                # Use `term` as column names
+        values_from = c(estimate, conf.low, conf.high),  # Values to pivot
+        names_sep = "_"                   # Add a separator to column names
+      )
+    
+    df_i <- cbind(df_i, est_i)
+    
+    # Store the data frame in the list
+    loo_results_list[[mod_name]] <- df_i
+  }
+  
+  # Combind 
+  loo_results_combined <- bind_rows(loo_results_list)
+  
+  # Get R2 
+  r2_results <- map_dfr(models, ~ as.data.frame(bayes_R2(.x)), .id = "model") %>%
+    tibble::remove_rownames()
+  
+  # Combind R2 and loo results 
+  model_fit_df <- dplyr::full_join(loo_results_combined, r2_results, by = "model") %>% 
+    dplyr::select(model, everything()) %>% 
+    dplyr::rename(r2 = Estimate,
+                  r2_error = Est.Error,
+                  r2_q2.5 = Q2.5,
+                  r2_q97.5 = Q97.5) %>% 
+    dplyr::mutate(id = sub("_(lm_\\d+)$", "", model),
+                  model_type = sub("^.*_(lm_\\d+)$", "\\1", model))
+  
+  return(model_fit_df)
+}
+```
+
+**bayes_mod_predictions**: This function extracts the predicted values from a list of models and combinds it with the orgnial data file used for the model
+
+```{r}
+bayes_mod_predictions <- function(models, original_data) {
+  
+  prediction_list <- list()
+  
+  for (mod_name in names(models)) {
+    # Extract mod
+    mod_i <- models[[mod_name]]
+    
+    # Make mode predictions
+    model_predictions_i <- as.data.frame(fitted(mod_i, summary = TRUE)) %>% 
+      dplyr::mutate(model = mod_name,
+                    id = sub("_(lm_\\d+)$", "", mod_name),
+                    model_type = sub("^.*_(lm_\\d+)$", "\\1", mod_name)) %>% 
+      dplyr::rename(pred_lower = Q2.5, pred_upper = Q97.5, predicted = Estimate, pred_error = Est.Error) %>% 
+      dplyr::select(model, everything())
+    
+    id_i <- model_predictions_i$id[1]
+    
+    original_data_i <- original_data %>% 
+      dplyr::filter(id == id_i)
+    
+    model_predictions_original_i <- cbind(model_predictions_i, original_data_i)
+    
+    prediction_list[[mod_name]] <- model_predictions_original_i
+  }
+  predictions_df <- bind_rows(prediction_list) 
+  return(predictions_df)
+}
+```
+
 
 **calcSMR**: authored by Chabot D. used to estimate SMR with several different methods Claireaux and Chabot (2016) DOI: doi:10.1111/jfb.12833
 
@@ -387,6 +564,12 @@ meta_files_wd <- paste0(wd, "./meta-data") # creates a variable with the name of
 labchart_wd <- paste0(wd, "./lab-chart-slopes")
 ```
 
+**mod_data_wd**: Directory for model output data estimated slopes
+
+```{r}
+mod_data_wd <- paste0(wd, "./mod-data")
+```
+
 ## Output
 
 **output_fig_wd**: this is where we will put the figures
@@ -396,13 +579,20 @@ output_fig_wd <- paste0(wd, "./output-fig")
 ifelse(!dir.exists("output-fig"), dir.create("output-fig"), "Folder already exists")
 ```
 
+**output_mods_wd**: this is where we will put the figures
+
+```{r}
+output_mods_wd <- paste0(wd, "./output-mod")
+ifelse(!dir.exists("output-mod"), dir.create("output-mod"), "Folder already exists")
+```
+
 #########################
 # Input files
 #########################
 
 ## Slopes (MO2)
 
-**labchart_df**: We have imported the slopes extracted in LabChart during each phase of the experiment
+**slope_df**: We have imported the slopes extracted in LabChart during each phase of the experiment
 
 ```{r}
  setwd(labchart_wd)
@@ -410,7 +600,7 @@ ifelse(!dir.exists("output-fig"), dir.create("output-fig"), "Folder already exis
 # # Get the names of all sheets in the Excel file
 sheet_names <- excel_sheets("labchart-all-dates_v2.xlsx")
 all_trials_select <- c("start_date", "order", "phase", "cycle", "date", "time")
-labchart_list <- list()
+slope_list <- list()
 
 for (sheet in sheet_names) {
 
@@ -429,7 +619,7 @@ a_df <- df %>%
   ) %>%
   dplyr::mutate(respirometer_group = "a") # Add a new column with a fixed value
 
-labchart_list[[a_name]]<- a_df
+slope_list[[a_name]]<- a_df
 
 b_name <- paste0("b_", tolower(sheet))
 b_df <- df %>% 
@@ -443,7 +633,7 @@ b_df <- df %>%
   ) %>% 
     dplyr::mutate(respirometer_group = "b")
 
-labchart_list[[b_name]] <- b_df
+slope_list[[b_name]] <- b_df
 
 c_name <- paste0("c_", tolower(sheet))
 c_df <- df %>% 
@@ -459,7 +649,7 @@ c_df <- df %>%
     dplyr::mutate(respirometer_group = "c") %>% 
   dplyr::rename(cycle = i_cycle)
 
-labchart_list[[c_name]] <- c_df
+slope_list[[c_name]] <- c_df
 
 d_name <- paste0("d_", tolower(sheet))
 d_df <- df %>% 
@@ -475,11 +665,11 @@ d_df <- df %>%
     dplyr::mutate(respirometer_group = "d") %>% 
   dplyr::rename(date = i_date)
 
-labchart_list[[d_name]] <- d_df
+slope_list[[d_name]] <- d_df
 }
 
 
-labchart_df <- bind_rows(labchart_list) %>% 
+slope_df <- bind_rows(slope_list) %>% 
   dplyr::mutate(resp_cat_date = paste0(respirometer_group, "_", start_date),
                 chamber_n = str_extract(chamber_id, "\\d+"),
                 id_prox = paste0(resp_cat_date, "_", chamber_n),
@@ -519,12 +709,12 @@ metadata <- read_excel("Morpho.xlsx", na = "NA") %>%
 Adding the meta data to LabChart slopes
 
 ```{r}
-labchart_tidy <- labchart_df %>% 
+slope_df_2 <- slope_df %>% 
   dplyr::select(-start_date, -respirometer_group) %>% 
   left_join(metadata, by = "id_prox") %>% 
+  dplyr::mutate(light_dark = if_else(time_hms >= as.hms("07:00:00") & time_hms < as.hms("19:00:00"), "light", "dark")) %>% 
   dplyr::arrange(id)
 ```
-
 
 ###################
 # Data
@@ -535,7 +725,7 @@ labchart_tidy <- labchart_df %>%
 We have **64 fish** with MO2 data
 
 ```{r}
-n <- labchart_tidy %>% 
+n <- slope_df_2 %>% 
   dplyr::filter(chamber_condition == "fish") %>% 
   dplyr::distinct(id) %>% 
   nrow(.)
@@ -546,7 +736,7 @@ paste0("n = ", n)
 With 48 from the 0 ppt and 48 from 9 ppt groups
 
 ```{r}
-labchart_tidy %>% 
+slope_df_2 %>% 
   dplyr::group_by(salinity_group) %>% 
   dplyr::reframe('n total' = length(unique(id))) %>% 
   gt() %>% 
@@ -563,16 +753,16 @@ labchart_tidy %>%
 Here we caculate the mean length and size of fish used in the experiment. 
 
 ```{r}
-mass_length <- labchart_tidy %>% 
+mass_length <- slope_df_2 %>% 
   dplyr::group_by(id) %>% 
   dplyr::sample_n(1) %>% 
   dplyr::ungroup() %>% 
-  dplyr::reframe(x_mass = round(mean(mass), 3),
-                 min_mass = round(min(mass), 3),
-                 max_mass = round(max(mass), 3),
-                 x_length = round(mean(length), 2),
-                 min_length = round(min(length), 2),
-                 max_length = round(max(length), 2))
+  dplyr::reframe(x_mass = round(mean(mass, na.rm = TRUE), 3),
+                 min_mass = round(min(mass, na.rm = TRUE), 3),
+                 max_mass = round(max(mass, na.rm = TRUE), 3),
+                 x_length = round(mean(length, na.rm = TRUE), 2),
+                 min_length = round(min(length, na.rm = TRUE), 2),
+                 max_length = round(max(length, na.rm = TRUE), 2))
 
 mass_mean <- mass_length %>% 
   pull(x_mass)
@@ -611,14 +801,14 @@ We will remove 6 trials which had errors. These are as follows: <br>
 ```{r}
 remove_trial_error <- c("a_0_25nov_3", "b_0_26nov_4", "c_0_22nov_2", "c_9_26nov_2", "c_9_26nov_4", "d_9_27nov_3")
 
-labchart_tidy <- labchart_tidy %>% 
+slope_df_filter <- slope_df_2 %>% 
   dplyr::filter(!(id %in% remove_trial_error))
 ```
 
 We now have **58 fish** with MO2 data
 
 ```{r}
-n <- labchart_tidy %>% 
+n <- slope_df_filter %>% 
   dplyr::filter(chamber_condition == "fish") %>% 
   dplyr::distinct(id) %>% 
   nrow(.)
@@ -629,7 +819,7 @@ paste0("n = ", n)
 With 45 in the 0 ppt group and 45 in the 9 ppt group 
 
 ```{r}
-labchart_tidy %>% 
+slope_df_filter %>% 
   dplyr::group_by(salinity_group) %>% 
   dplyr::reframe('n total' = length(unique(id))) %>% 
   gt() %>% 
@@ -654,7 +844,7 @@ Here we apply the following filters to the MO2 data: <br>
 ```{r}
 cycle_burn <- 0:4
 
-labchart_tidy <- labchart_tidy %>%
+slope_df_filter_1 <- slope_df_filter %>%
   dplyr::filter(!(cycle %in% cycle_burn) & 
                   mo2corr < 0 & 
                   n > 60 &
@@ -679,7 +869,7 @@ filter_o2_increase <- function(group) {
 }
   
 # Apply the function to each group of 'chamber_id'
-labchart_tidy_fish_closed <- labchart_tidy %>% 
+slope_tidy_closed <- slope_df_filter_1 %>% 
   dplyr::filter(phase != "smr") %>%
   group_by(id) %>%
   group_split() %>%
@@ -687,10 +877,10 @@ labchart_tidy_fish_closed <- labchart_tidy %>%
   bind_rows() %>%
   select(-o2_diff)
 
-labchart_tidy_fish_smr <- labchart_tidy %>% 
+slope_tidy_smr <- slope_df_filter_1 %>% 
   dplyr::filter(phase == "smr")
 
-labchart_tidy_fish <- rbind(labchart_tidy_fish_smr, labchart_tidy_fish_closed) %>% 
+slope_df_filter_2 <- rbind(slope_tidy_smr, slope_tidy_closed) %>% 
   dplyr::arrange(id, order)
 ```
 
@@ -701,7 +891,7 @@ We have estimated SMR with two different appraches. <br>
 First using the mean of the lowest 3 values (smr_3l_means)
 
 ```{r}
-smr_3l_means <- labchart_tidy_fish %>%
+smr_3l_means <- slope_df_filter_2 %>%
   dplyr::group_by(id) %>% 
   dplyr::filter(phase == "smr") %>%
   dplyr::arrange(desc(mo2corr)) %>%
@@ -711,7 +901,7 @@ smr_3l_means <- labchart_tidy_fish %>%
   dplyr::reframe(smr_l3 = mean(mo2corr))
 
 # Combine the processed "smr" phase with all other phases
-labchart_tidy_fish <- labchart_tidy_fish %>%
+slope_df_filter_3 <- slope_df_filter_2 %>%
   dplyr::left_join(., smr_3l_means, by = "id")
 ```
 
@@ -719,7 +909,7 @@ labchart_tidy_fish <- labchart_tidy_fish %>%
 Second using the calcSMR function by Chabot, Steffensen and Farrell (2016) DOI: 10.1111/jfb.12845. Specifically, We use mean of the lowest normal distribution (MLND) where CVmlnd < 5.4 and the mean of the lower 20% quantile (q0.2) were CVmlnd > 5.4. If CVmlnd is not calculated we have used q0.2. 
 
 ```{r}
-labchart_chabot_smr <- labchart_tidy_fish %>%
+labchart_chabot_smr <- slope_df_filter_3 %>%
   dplyr::filter(phase == "smr")
 
 # Extract distinct IDs
@@ -774,7 +964,7 @@ smr_df <- bind_rows(smr_list) %>%
   dplyr::rename(smr_chabot = smr,
                 smr_chabot_method = smr_est)
 
-labchart_tidy_fish <- labchart_tidy_fish %>%
+slope_df_filter_4 <- slope_df_filter_3 %>%
   dplyr::left_join(., smr_df, by = "id")
 ```
 
@@ -793,11 +983,18 @@ Here we are transforming the MO2 units. The resulting vaules are as follows:
 
 ```{r}
 # Combine back into one data frame
-labchart_tidy_fish <- labchart_tidy_fish %>% 
+slope_tidy <- slope_df_filter_4 %>% 
     dplyr::mutate(DO = conv_o2(
                    o2 = o2,
                    from = "mg_per_l",
                    to = "percent_a.s.",
+                   temp = temp, #C
+                   sal = measured_salinity,
+                   atm_pres = 1013.25),
+                  o2_kpa = conv_o2(
+                   o2 = o2,
+                   from = "mg_per_l",
+                   to = "kPa",
                    temp = temp, #C
                    sal = measured_salinity,
                    atm_pres = 1013.25),
@@ -816,10 +1013,12 @@ labchart_tidy_fish <- labchart_tidy_fish %>%
 # Visualising data
 #######################
 
+### O2 vs MO2
+
 Here we plot all oxygen consumption (MO2; mg O2/g/h) by dissolved oxygen percentage (DO) for all fish, including all SMR estimates. 
 
 ```{r}
-labchart_tidy_fish %>% 
+slope_tidy %>% 
   ggplot(aes(y = MO2_g, x = DO, colour = id)) + # Default aesthetics
   geom_point(show.legend = FALSE) +
   geom_smooth(aes(group = id), method = "lm", se = FALSE, colour = scales::alpha("black", 0.5)) + # Transparent black lines
@@ -837,7 +1036,7 @@ labchart_tidy_fish %>%
 Same plot but without SMR values. 
 
 ```{r}
-labchart_tidy_fish %>% 
+slope_tidy %>% 
   dplyr::filter(phase != "smr") %>% 
   ggplot(aes(y = MO2_g, x = DO, colour = id)) + # Default aesthetics
   geom_point(show.legend = FALSE) +
@@ -852,12 +1051,12 @@ labchart_tidy_fish %>%
   )
 ```
 
-
+#### Salinity
 <br>
 Looking at the difference responses in the two salinity groups. It's appears more variable in freshwater.
 
 ```{r}
-labchart_tidy_fish %>% 
+slope_tidy %>% 
   ggplot(aes(y = MO2_g, x = DO, colour = id)) + # Default aesthetics
   geom_point(show.legend = FALSE) +
   geom_smooth(aes(group = id), method = "lm", se = FALSE, colour = scales::alpha("black", 0.5)) + # Transparent black lines
@@ -872,12 +1071,12 @@ labchart_tidy_fish %>%
   )
 ```
 
-
+#### Chambers
 <br>
 Looking at the difference chamber types
 
 ```{r}
-labchart_tidy_fish %>% 
+slope_tidy %>% 
   ggplot(aes(y = MO2_g, x = DO, colour = id)) + # Default aesthetics
   geom_point(show.legend = FALSE) +
   geom_smooth(aes(group = id), method = "lm", se = FALSE, colour = scales::alpha("black", 0.5)) + # Transparent black lines
@@ -888,34 +1087,41 @@ labchart_tidy_fish %>%
   labs(
     subtitle = "mo2 vs o2 by chamber type",
     x = "Dissolved oxygen percentage (DO)",
-    y = "MO2 (O2 mg/g/h)"
+    y = "MO2 (mg O2 g/h)"
   )
 ```
 
-### Recreating Urbina et al. (2012)
+#### Urbina et al. (2012) Comparison
+
+Comparison to data from Urbina et al. (2012) 
 
 ```{r}
-min_o2 <- min(labchart_tidy_fish$o2, na.rm = TRUE)
-max_o2 <- max(labchart_tidy_fish$o2, na.rm = TRUE)
+n <- slope_tidy %>% 
+  dplyr::distinct(id) %>% 
+  nrow(.)
 
-labchart_tidy_fish <- labchart_tidy_fish %>%
-  mutate(o2_group = cut(o2, 
-                        breaks = seq(min_o2, max_o2, length.out = 11), # 12 intervals, so 13 breakpoints
-                        labels = paste0("Group ", 1:10), 
+
+min_o2_kpa <- min(slope_tidy$o2_kpa, na.rm = TRUE)
+max_o2_kpa <- max(slope_tidy$o2_kpa, na.rm = TRUE)
+
+slope_tidy <- slope_tidy %>%
+  mutate(o2_group = cut(o2_kpa, 
+                        breaks = seq(min_o2_kpa, max_o2_kpa, length.out = 13), # 11 intervals, so 12 breakpoints
+                        labels = paste0("Group ", 1:12), 
                         include.lowest = TRUE))
 
-time_bin_df <- labchart_tidy_fish %>% 
+time_bin_df <- slope_tidy %>% 
   dplyr::group_by(o2_group) %>% 
   dplyr::reframe(mean_MO2_g = mean(MO2_g)*31.25,
-                 mean_o2 = mean(o2),
+                 mean_o2_kpa = mean(o2_kpa),
                  n = length(MO2_g)*31.25,
                  MO2_g_sd = sd(MO2_g)*31.25,
-                 o2_sd = sd(o2))
+                 o2_kpa_sd = sd(o2_kpa))
 
 time_bin_df %>% 
-  ggplot(aes(y = mean_MO2_g, x = mean_o2)) +
+  ggplot(aes(y = mean_MO2_g, x = mean_o2_kpa)) +
   # Add raw data points
-  geom_point(data = labchart_tidy_fish, aes(y = MO2_g*31.25, x = o2), 
+  geom_point(data = slope_tidy, aes(y = MO2_g*31.25, x = o2_kpa), 
              size = 2, color = "grey", alpha = 0.5) +  # Raw data points
   # Add summary points
   geom_point(size = 3, colour = "black", show.legend = FALSE) +
@@ -923,32 +1129,76 @@ time_bin_df %>%
   geom_errorbar(aes(ymin = mean_MO2_g - MO2_g_sd, ymax = mean_MO2_g + MO2_g_sd), 
                 width = 0.15, colour = "black") +
   # Add horizontal error bars
-  geom_errorbarh(aes(xmin = mean_o2 - o2_sd, xmax = mean_o2 + o2_sd), 
+  geom_errorbarh(aes(xmin = mean_o2_kpa - o2_kpa_sd, xmax = mean_o2_kpa + o2_kpa_sd), 
                  height = 0.4, colour = "black") +
+  annotate("text", x = 0, 
+             y = 16, 
+             label = paste0("n = ", n), 
+             hjust = 0, vjust = 1, size = 4) +
   theme_clean() +
   labs(
-    subtitle = "All values with error bars",
-    x = "O2 (mg/L)",
+    subtitle = "",
+    x = "PO2 (kPa)",
     y = "MO2 (umol O2 g/h)"
-  )
+  ) +
+  scale_y_continuous(limits = c(0, 16), breaks = seq(0, 16, by = 2)) +
+  scale_x_continuous(limits = c(0, 22), breaks = seq(0, 22, by = 2))  # Custom y-axis scale
 ```
 
 
-### Plotting SMR
+### SMR
 
-<br>
-Plotting MO2 estimates for each fish. The dashed red line is Chabot SMR methods, and the solid line is the mean of the lowest 3 measures (excluding the first 5 cycles) <br>
-
-*Notes: There's something wired going on with a_0_25nov_2 it seems like many of the raw MO2 values are positive.*
+Making an SMR only data frame 
 
 ```{r}
+slope_tidy_smr <- slope_tidy %>% 
+  dplyr::filter(phase == "smr")
+```
+
+#### SMR by saility 
+
+Plot of SMR by salinity treatment. The small points are the observed values, the shaded area behind the points is the a kernel density of the observed data, the box plot on top show the median and interquartile range (IQR). 
+
+```{r}
+mean_mo2_salinity <- slope_tidy_smr %>% 
+  dplyr::group_by(salinity_group) %>% 
+  dplyr::reframe(mean_mo2 = mean(MO2, na.rm = TRUE))
+
+fig_i <- ggplot() +
+    geom_violin(data = slope_tidy_smr, aes(x = salinity_group, y = MO2, fill = salinity_group), color = NA, alpha = 0.3) +
+  geom_jitter(data = slope_tidy_smr, aes(x = salinity_group, y = MO2, fill = salinity_group),
+                       shape = 21, size = 2, color = "black", alpha = 0.2) +
+  geom_boxplot(data = slope_tidy_smr, aes(x = salinity_group, y = MO2, fill = salinity_group),
+                        size = 1, alpha = 0.5, outlier.shape = NA, width = 0.3) +
+  geom_point(data = mean_mo2_salinity, 
+                aes(x = salinity_group, y = mean_mo2, fill = salinity_group), 
+                size = 3, alpha = 0.8, colour = "black", stroke = 2) +
+  scale_fill_manual(values = c("#4B5320", "#000080")) +  # Custom fill colours
+  scale_colour_manual(values = c("#4B5320", "#000080")) +
+  theme_clean() +
+  theme(legend.position = "none") +
+  labs(
+    subtitle = "",
+    x = "Salinity group (ppt)",
+    y = "MO2 (mg O2 g/h)"
+  )
+
+fig_i
+```
+
+
+#### SMR for each fish
+
+Plotting MO2 estimates for each fish. The dashed red line is Chabot SMR methods, and the solid line is the mean of the lowest 3 measures (excluding the first 5 cycles) <br>
+
+```{r, fig.height = 3, fig.width= 4}
 # Create output directory if needed
 output_fig_slopes_wd <- file.path(output_fig_wd, "slopes")
 if (!dir.exists(output_fig_slopes_wd)) {
   dir.create(output_fig_slopes_wd)
 }
 
-ids <- labchart_tidy_fish %>% 
+ids <- slope_tidy %>% 
   dplyr::distinct(id) %>% 
   pull(id) %>% 
   as.list()
@@ -965,17 +1215,17 @@ pdf(
 # 2) Loop over IDs and create each plot
 for (id_i in ids) {
   
-  smr_chabot <- labchart_tidy_fish %>% 
+  smr_chabot <- slope_tidy %>% 
     dplyr::filter(id == id_i) %>% 
     dplyr::slice(1) %>% 
     dplyr::pull(SMR_CHABOT)
   
-  smr_l3 <- labchart_tidy_fish %>% 
+  smr_l3 <- slope_tidy %>% 
     dplyr::filter(id == id_i) %>% 
     dplyr::slice(1) %>% 
     dplyr::pull(SMR)
   
-  plot <- labchart_tidy_fish %>% 
+  plot <- slope_tidy %>% 
     dplyr::filter(id == id_i) %>% 
     ggplot(aes(x = o2, y = MO2)) +
     geom_hline(yintercept = smr_chabot, linetype = "dashed", color = "darkred") +
@@ -1007,96 +1257,330 @@ for (p in MO2_plot_list) {
 # Analysis
 ################
 
+## SMR
+
+### Scaling predictors
+
+Here we scale our predictors for the model <br>
+
+```{r}
+center_list <- c("temp", "order", "mass") 
+
+slope_tidy_smr <- slope_tidy_smr %>%
+  dplyr::mutate(across(all_of(center_list), ~ scale(.x, center = TRUE, scale = FALSE),
+                       .names = "{.col}_z"),
+                light_dark_c = if_else(light_dark == "light", 1, 0))
+```
+
+### Model structure
+
+Here we will use a Bayesian Generalised Linear Mixed Model (GLMM) with a Gamma distribution and a log link, where the shape parameter (K) is also modelled as a function of predictors. This models MO2 by salinity during the SMR phase to see if the fish held at different salinities have different SMRs. We have also added a few scaled predictors, that may help describe variation in the data, such as mass (g; 0.21–1.6) temperature (°C; 13.841–14.277), measurement order (1–28), and light/dark cycle (light or dark; light between 07:00:00 and 19:00:00), we also include a random effect for fish id to account for multiple MO2 measures on each fish. We allowed the the shape parameter (K) to vary as a function of some of the predictors (e.g. salinity_group, order_z) to improve fit. <br>
+
+```{r}
+smr_gamma_bf <- bf(MO2 ~ temp_z + 
+                  order_z  + 
+                  light_dark_c + 
+                  mass_z + 
+                  salinity_group + (1|id),
+                shape ~ salinity_group + 
+                  order_z,
+                family = Gamma(link = "log"))
+```
+
+
+### Prior selection
+
+These are the default priors. We will use these.
+
+```{r}
+suppressWarnings(get_prior(smr_gamma_bf, data = slope_tidy_smr, family = Gamma(link = "log")))
+```
+
+### Run model
+
+Here we run the modle, I have hased this out because I have saved the model for quick reloading. 
+
+```{r}
+# setwd(output_mods_wd)
+# 
+# smr_mod_gamma <- brm(smr_gamma,
+#                data = slope_tidy_smr,
+#                cores = 4,
+#                chains = 4,
+#                warmup = 1000,
+#                seed = 143019,
+#                thin = 2,
+#                iter = 8000,
+#                save_pars = save_pars(all=TRUE),
+#                sample_prior = TRUE,
+#                file = 'smr_mod_gamma')
+# print("Model complete")
+```
+
+Here we reload the model <br>
+
+```{r}
+setwd(output_mods_wd)
+
+smr_mod_gamma <-  readRDS(file = "smr_mod_gamma.rds")
+```
+
+
+Checking model convergence <br>
+
+```{r}
+plot(smr_mod_gamma, ask = F)
+```
+
+Checking rhat are equal to one <br>
+
+```{r}
+tidy(rhat(smr_mod_gamma)) %>% 
+  dplyr::rename(rhat = x)
+```
+
+Using leave one out (loo) measure of fit, the model appears to preform well, all Pareto k estimates are good (k < 0.7) <br>
+
+```{r}
+loo(smr_mod_gamma)
+```
+
+Model predictions generally align with the observed data <br>
+
+```{r}
+plot <- pp_check(smr_mod_gamma, type = "dens_overlay")
+plot 
+```
+
+
+### Results
+
+We did not see a meaningful difference between the SMR measurements of fish from the two salinity treatments. 
+
+#### Table 1 
+
+Table 1: Fixed effect Estimates (β) and 95% Credible Intervals (95% CI) from a 
+
+```{r}
+model_est <- fixef(smr_mod_gamma, probs = c(0.025, 0.975)) %>% 
+  as.data.frame() %>% 
+  tibble::rownames_to_column(var = "Predictor") %>% 
+  dplyr::mutate('β' = round(Estimate, 3),
+                Q2.5 = round(Q2.5, 3),
+                Q97.5 = round(Q97.5, 3),
+                '95% CI' = paste0("[", Q2.5, ", ", Q97.5, "]"))
+
+model_est %>% 
+  dplyr::select(Predictor, 'β', '95% CI') %>% 
+  gt()
+```
+
+Looking at the marginal mean difference between salinity groups
+
+```{r}
+em_results <- emmeans(smr_mod_gamma, ~ salinity_group) 
+contrast_results <- contrast(em_results, method = "pairwise")
+em_results_df <-  em_results %>% tidy() %>% 
+  mutate(across(where(is.numeric), ~ exp(.)))
+contrast_results_df <-  contrast_results %>% tidy() %>% 
+  mutate(across(where(is.numeric), ~ exp(.)))
+
+
+em_results_df %>% 
+  gt()
+```
+
+```{r}
+emmeans_draws <- smr_mod_gamma %>%
+  emmeans(~ salinity_group) %>%
+  gather_emmeans_draws() %>% 
+  dplyr::mutate(.value =  exp(.value),
+                salinity_group = as.character(salinity_group))
+
+emmeans_contrast_draws <-  smr_mod_gamma %>%
+  emmeans(~ salinity_group) %>%
+  contrast(method = "pairwise") %>%
+  gather_emmeans_draws() %>% 
+  dplyr::mutate(.value =  exp(.value))
+
+round_vars = c(".value", ".lower", ".upper")
+
+smr_emmeans <- emmeans_draws %>% 
+  mean_qi(.width = c(.889, 0.949)) %>% 
+  mutate(across(all_of(round_vars), ~ round(.x, digits = 3)))
+
+smr_contrast <- emmeans_contrast_draws %>% 
+  mean_qi(.width = c(.889, 0.949)) %>% 
+  mutate(across(all_of(round_vars), ~ round(.x, digits = 3)))
+
+smr_emmeans
+smr_contrast
+```
+
+#### Fig 1
+
+#### Discuss - what data to plot and what formate
+
+**Figure 1:** The MO2 (mg o2 g/h) during SMR meassurments plotted by salinity treatment. The small transparent points are the observed values, the shaded area behind the points is the a kernel density of the observed data, the large coloured point (to the right) is the observed mean, the large grey point with error bars (to the left) is the model estimated marginal mean (eemean) 95% Credible Intervals (95% CI). 
+
+```{r}
+mean_mo2_salinity <- slope_tidy_smr %>% 
+  dplyr::group_by(salinity_group) %>% 
+  dplyr::reframe(mean_mo2 = mean(MO2, na.rm = TRUE))
+
+
+fig_1 <- ggplot() +
+  geom_violin(data = slope_tidy_smr,
+              aes(x = salinity_group, y = MO2, fill = salinity_group),
+              color = NA, alpha = 0.2) +
+  geom_jitter(data = slope_tidy_smr,
+              aes(x = salinity_group, y = MO2, fill = salinity_group),
+              shape = 21, width = 0.3, size = 1, color = "black", alpha = 0.1) +
+    geom_point(data = mean_mo2_salinity,
+             aes(x = salinity_group, y = mean_mo2, fill = salinity_group),
+             size = 4, alpha = 1, stroke = 2, color = "black", shape = 21,
+              position = position_nudge(x = 0.05)) +
+  stat_pointinterval(data = emmeans_draws, 
+                     aes(x = salinity_group, y = .value),
+                     color = "black", fill = "grey", point_interval = "mean_qi", .width = 0.95, shape = 21,  stroke = 2, point_size = 4, alpha = 1,
+                     position = position_nudge(x = -0.05)) +
+  scale_fill_manual(values = c("#4B5320", "#000080")) +  # Custom fill colours
+  scale_colour_manual(values = c("#4B5320", "#000080")) +
+  theme_clean() +
+  theme(legend.position = "none") +
+  labs(
+    subtitle = "",
+    x = "Salinity group (ppt)",
+    y = "MO2 (mg O2 g/h)"
+  )
+
+fig_1
+```
+
+
 ## Incremental regression analyses
 
 Here we are following the methods Urbina et al. (2012) with an incremental regression analyses, in order to determine the best fit for the data.<br>
 
-This analysis evaluated each polynomial order equation starting at zero and then increasing to the third order. This permitted a mathematical assessment of whether the data best fitted a single linear relationship (0th-order polynomial; suggesting the fish were oxyconforming and do not reach a Pcrit), or whether a PO2 crit value could be determined as an intersection point of two distinct functions (one at hypoxic oxygen concentrations, the other at normoxic; i.e. oxyregulation).
+This analysis evaluated each polynomial order equation starting at zero and then increasing to the third order. This permitted a mathematical assessment of whether the data best fitted a single linear relationship (0th-order polynomial; suggesting the fish were oxyconforming and do not reach a Pcrit), or whether a PO2 crit value could be determined as an intersection point of two distinct functions (one at hypoxic oxygen concentrations, the other at normoxic; i.e. oxyregulation). <br>
 
-### Weighted regressions
+### Building Bayesian regressions
 
-We will use weighted regression to account for a higher density of data at normoxic conditions (i.e. SMR values). Specifically, we are weighting the importance of each data point in fitting the model based on frequency of points in that space. Points that have higher weights influence the model fit more, while points with lower weights have less impact. A high density of points at high o2 values could lead to overfitting in that region, while underfitting or misrepresenting trends in lower-density regions (e.g., low o2 vaules). The weighting is achieved by dividing the o2 values into bins, computing the frequency of points in each bin, and assigning weights as the inverse of frequency for each point.
+Here we are using a Bayesian approach to model fitting with brm. These models take a long time to run, so I have saved them and re-loaded them to save time. I have also saved the summary data produced from the models, to save time, you can simply skip the hashed code and input the resulting summary data. <br>
+
+We will run our custom function, **bayes_incremental_regression_by_id**. **This code takes a while to run**. If you have already run this once, or have downloaded the saved models from GitHub **skip this step** (that's why its hashed out), and run the next line, which loads the models. <br>
 
 ```{r}
-ids <- labchart_tidy_fish %>%
-  dplyr::distinct(id) %>%
-  pull(id) %>%
-  as.list()
-
-weighted_model_comparison_list <- list()
-
-weighted_model_results_list <- list()
-
-for (id_i in ids) {
-  
-  # Filter data for the current ID
-  df_i <- labchart_tidy_fish %>%
-    dplyr::filter(id == id_i)
-  
-  # Calculate weights based on O2 density
-  df_i <- df_i %>%
-    dplyr::mutate(
-      o2_bin = cut(o2, breaks = 10)  # Divide O2 into 10 bins
-    ) %>% 
-    dplyr::group_by(o2_bin) %>% 
-    dplyr::mutate(
-      bin_freq = length(order),          # Count points in each bin
-      weight = 1 / bin_freq           # Weight = inverse frequency
-      ) %>% 
-    ungroup()
-  
-  # Fit models with weights
-  models <- list(
-    lm_0 = lm(MO2 ~ 1, data = df_i, weights = weight),                # 0th-order (constant mean)
-    lm_1 = lm(MO2 ~ o2, data = df_i, weights = weight),               # 1st-order (linear)
-    lm_2 = lm(MO2 ~ poly(o2, 2), data = df_i, weights = weight),      # 2nd-order (quadratic)
-    lm_3 = lm(MO2 ~ poly(o2, 3), data = df_i, weights = weight)       # 3rd-order (cubic)
-  )
-  
-  # Extract metrics to compare models
-  weighted_model_comparison_list[[id_i]] <- purrr::map_df(models, glance, .id = "model") %>%
-    dplyr::mutate(id = id_i) %>%
-    dplyr::select(id, everything())
-  
-  weighted_model_results_list[[id_i]] <- map_df(models, ~ tidy(.x, conf.int = TRUE), .id = "model") %>%
-    clean_names() %>% 
-    mutate(id = id_i) %>%
-    select(id, everything())
-}
-
-# Combine dataframes into a single data frame
-weighted_model_comparison <- bind_rows(weighted_model_comparison_list) %>%
-  dplyr::mutate(poly = as.numeric(stringr::str_remove_all(model, "lm_")))
-
-weighted_model_results <- bind_rows(weighted_model_results_list) %>%
-  dplyr::mutate(poly = as.numeric(stringr::str_remove_all(model, "lm_")))
+# output_mods_bayes_wd <- paste0(output_mods_wd, "./bayes-regs")
+# ifelse(!dir.exists(output_mods_bayes_wd), dir.create(output_mods_bayes_wd), "Folder already exists")
+# 
+# ids <- slope_tidy %>%
+#   dplyr::distinct(id) %>%
+#   pull(id)
+# 
+# plan(multisession)
+# 
+# future_map(
+#   ids, 
+#   bayes_incremental_regression_by_id,
+#   id_name = "id",
+#   data = slope_tidy,
+#   response = "MO2_g",
+#   predictor = "DO",
+#   save_models = TRUE,
+#   mod_output_wd = output_mods_bayes_wd
+# )
+# 
+# plan(sequential)  
 ```
 
-<br>
-Selecting the best fitting model
+Load all models and store in a list, will use a lot of memory. You can also skip this step and load the reulsting data frames below. I am using the custom function **load_rds**, so we can compare them and generate predictions. <br>
 
 ```{r}
-best_weighted_model <- weighted_model_comparison %>% 
-  dplyr::group_by(id) %>% 
-  dplyr::arrange(desc(AIC)) %>% 
-  dplyr::slice(1) %>% 
-  dplyr::ungroup()
+# bayes_reg_mods <- load_rds(model_dw = output_mods_bayes_wd)
+```
+
+### Model fits
+
+Get model fit parameters loo and r2 using the custom function, **incremental_regression_bayes_fits**. <br>
+
+```{r}
+# setwd(mod_data_wd)
+# bayes_reg_mods_fit <- incremental_regression_bayes_fits(models = bayes_reg_mods)
+# write.csv(bayes_reg_mods_fit, "bayes_reg_mods_fit.csv", row.names = FALSE)
+```
+
+Reading in this model fit data frame, in the case you did not load in all the models. <br> 
+
+```{r}
+setwd(mod_data_wd)
+bayes_reg_mods_fit <- read.csv("bayes_reg_mods_fit.csv")
+```
+
+Selecting the best fitting model <br>
+
+elpd_loo, or the expected log pointwise predictive density for leave-one-out cross-validation, is a metric used in Bayesian model evaluation to assess the predictive accuracy of a model. <br>
+
+The elpd_loo is an approximation of how well the model is expected to predict new data, based on leave-one-out cross-validation. Higher elpd_loo values indicate better predictive performance. <br>
+
+```{r}
+best_fit_bayes_reg <- bayes_reg_mods_fit %>% 
+  dplyr::group_by(id) %>%
+  dplyr::mutate(elpd_loo_rank = rank(-elpd_loo)) %>% 
+  dplyr::select(id, model_type, elpd_loo, r2, elpd_loo_rank, r2_q2.5, r2_q97.5, estimate_DO, conf.low_DO, conf.high_DO)
 ```
 
 
-Most often the best fitting model is a 0th-order polynomial (*n* = 32, 55.17%), suggesting that MO2 does not show a statistically significant dependence on the o2. In other words, the metabolic rate does not adjust based on oxygen availability, and there is no clear critical oxygen threshold (Pcrit) where the relationship changes. This is indicative of a **oxyregulator**. <br>
+### Model predictions
 
-The next most common is a 1st-order polynomial (*n* = 12, 20.69%) which may suggest the presences of linear relationship between o2 and MO2 in some fish, however, to be true evidence of a **oxyconformer** this relationship should be positive (i.e. as o2 falls MO2 also falls). Only 6 of the 12 individuals best modelled with a linear function were positive, and none were statistically significant (Table 1). 
-
-The reaming fish (*n* = 14, 24.14%) had a 2nd- or 3rd-oder polynomial which could suggest the presence of a critical oxygen threshold (Pcrit) where the relationship between o2 and MO2 changes. These would also need to be validated to check the same of the polynomials to deterimine if a Pcirt is present. B
+Pulling our model predictions using a custom function **bayes_mod_predictions**. <br>
 
 ```{r}
-total_fish <- nrow(best_weighted_model)
+#setwd(mod_data_wd)
+#bayes_reg_mods_predictions <- bayes_mod_predictions(models = bayes_reg_mods, original_data = slope_tidy)
+#write.csv(bayes_reg_mods_predictions, "bayes_reg_mods_predictions.csv", row.names = FALSE)
+```
 
-best_weighted_model %>% 
-  dplyr::group_by(poly) %>% 
+Reading in the predicted data <br>
+
+```{r}
+setwd(mod_data_wd)
+bayes_reg_mods_predictions <- read.csv("bayes_reg_mods_predictions.csv")
+```
+
+We are going to combined this with our best fitting model df, so we know how they ranks for LOO. <br>
+
+```{r}
+bayes_reg_mods_predictions <- full_join(bayes_reg_mods_predictions, best_fit_bayes_reg, by = c("id", "model_type"))
+```
+
+### Model selection summary
+
+The best fitting models were most often a 2nd-order polynomial (*n* = 22, 38%) or a 3rd-order polynomial (*n* = 16, 28%). This could suggest the presence of a critical oxygen threshold (Pcrit) where the relationship between o2 and MO2 changes. To confirm their is a Pcrit, we need to validated the shape of the polynomials and in should use a more specific model to test the Pcrit value. In any case, This type of model is indicative of **oxyregulator**. <br>
+
+The next most common are 0th-order and 1st-order polynomials (both *n* = 10, 17%). In the case of the 0th-order model, it suggests that MO2 does not show a statistically significant dependence on the o2. In other words, the metabolic rate does not adjust based on oxygen availability, and there is no clear critical oxygen threshold (Pcrit) where the relationship changes. This is indicative of a **oxyregulator**. In the case of the 1st-order polynomials, it suggest the presences of linear relationship between o2 and MO2, which is indicative of **oxyconformer**. However, to be true evidence of a oxyconformer this relationship should be positive (i.e. as o2 falls MO2 also falls). Only 2 of the 10 individuals best modelled with a linear function had positive estimates with credible intervals that did not overlap with zero (Table 1). <br>
+
+```{r}
+best_mod <- best_fit_bayes_reg %>% 
+  dplyr::filter(elpd_loo_rank == 1)
+
+total_fish <- nrow(best_mod)
+
+table_bwm <- best_mod %>% 
+  dplyr::group_by(model_type) %>% 
   dplyr::reframe(n = length(id),
                  percent = round((n/total_fish)*100,2)) %>% 
+  dplyr::mutate(best_model_name = case_when(
+      model_type == "lm_0" ~ "0th-order polynomial",
+      model_type == "lm_1" ~ "1st-order polynomial",
+      model_type == "lm_2" ~ "2nd-order polynomial",
+      model_type == "lm_3" ~ "3rd-order polynomial",
+      TRUE ~ "ERROR"
+    )) %>% 
+  dplyr::select(best_model_name, everything(), -model_type)
+
+
+table_bwm %>% 
    gt() %>% 
   cols_align(
     align = "center", 
@@ -1104,119 +1588,297 @@ best_weighted_model %>%
   )
 ```
 
-
-<br>
-For the 12 fish that had o2 and MO2 relationships best modelled with a linear function, only 6 are were positive relationships (which we would expect if fish were oxyconforming), and none are statistically significant. 
-
-### Table 1
+Summary of fish best model with a linear function. <br>
 
 ```{r}
-ids_lm_1_list <- best_weighted_model %>% 
-  dplyr::filter(model == "lm_1") %>% 
-  dplyr::pull(id)
+table_lm_1 <- best_mod %>% 
+  dplyr::filter(model_type == "lm_1") %>% 
+  dplyr::mutate(r_sq_ci = paste0(round(r2, 3), " (", 
+                                 round(r2_q2.5, 3), "–", 
+                                 round(r2_q97.5, 3), ")"),
+                est_ci = paste0(round(estimate_DO, 6), " (", 
+                                round(conf.low_DO, 6), "–", 
+                                round(conf.high_DO, 6), ")"),
+                conformer = if_else(conf.low_DO > 0, "Conforming", "Not conforming")) %>% 
+  dplyr::select(id, r_sq_ci, est_ci, conformer) %>% 
+  dplyr::arrange(conformer) %>% 
+  dplyr::ungroup()
 
-weighted_model_results %>% 
-  dplyr::filter(id %in% ids_lm_1_list & model == "lm_1" & term == "o2") %>% 
-  dplyr::mutate(estimate = round(estimate, 4),
-                ci = paste0(round(conf_low,4), "–", round(conf_high,4)),
-                p_value = round(p_value, 3)) %>% 
-  dplyr::select(id, estimate, ci, p_value) %>% 
+
+table_lm_1 %>% 
   gt() %>% 
   cols_align(
     align = "center", 
     columns = everything()
+  ) %>% 
+  cols_label(
+    id = "Fish ID",
+    r_sq_ci = "r2 (CI)",
+    est_ci = "Estimate (CI)",
+    conformer = "Evidence of oxyconforming"
   )
 ```
 
+#### Ploting models
 
-<br>
-Visualising the regressions
+Now we are plotting each of the regressions. First making a directory to save the figures <br>
 
 ```{r}
-ids <- labchart_tidy_fish %>% 
-  dplyr::distinct(id) %>% 
-  pull(id) %>% 
-  as.list()
+incremental_reg_bayes_wd <- file.path(output_fig_wd, "incremental_regressions./bayes")
+if (!dir.exists(incremental_reg_bayes_wd)) {
+  dir.create(incremental_reg_bayes_wd)
+}
+```
+
+Ploting all regression, and highlighting the model that has the best fit, based on AIC values <br>
+
+```{r}
+# Create a list to store the plots
+plots <- list()
+model_preds_list <- list()
 
 for (id_i in ids) {
   
-  df_i <- labchart_tidy_fish %>%
+  # Filter data for the current ID
+  df_i <- bayes_reg_mods_predictions %>%
     dplyr::filter(id == id_i) %>% 
-    dplyr::mutate(o2_bin = cut(o2, breaks = 10)) %>% 
-    dplyr::group_by(o2_bin) %>% 
-    dplyr::mutate(
-      bin_freq = length(order),          # Count points in each bin
-      weight = 1 / bin_freq           # Weight = inverse frequency
-      ) %>% 
-    ungroup()
+    dplyr::mutate(line_size = if_else(elpd_loo_rank == 1, 2, 1),
+           alpha_value = if_else(elpd_loo_rank == 1, 1, 0.4))
   
-  best_weighted_model_i <- best_weighted_model %>% 
-    dplyr::filter(id == id_i)
+  x_min <- df_i %>%
+    dplyr::reframe(min = min(DO), na.rm = TRUE) %>% 
+    dplyr::pull(min)
   
-  poly_i <- best_weighted_model_i %>% 
-    dplyr::pull(poly)
+  y_max <- df_i %>%
+    dplyr::reframe(max = max(MO2_g), na.rm = TRUE) %>% 
+    dplyr::pull(max)
+  
+  best_weighted_model_i <- best_fit_bayes_reg %>% 
+    dplyr::filter(id == id_i & elpd_loo_rank == 1)
   
   poly_i_name <- best_weighted_model_i %>%
     dplyr::mutate(name = case_when(
-      poly == 0 ~ "0th-order polynomial",
-      poly == 1 ~ "1st-order polynomial",
-      poly == 2 ~ "2nd-order polynomial",
-      poly == 3 ~ "3rd-order polynomial",
+      model_type == "lm_0" ~ "0th-order polynomial",
+      model_type == "lm_1" ~ "1st-order polynomial",
+      model_type == "lm_2" ~ "2nd-order polynomial",
+      model_type == "lm_3" ~ "3rd-order polynomial",
       TRUE ~ "ERROR"
     )) %>% 
     dplyr::pull(name)
   
-  r <- best_weighted_model_i %>%
-    dplyr::pull(r.squared) %>% 
-    round(., 2)
-  
-  sigma <- best_weighted_model_i %>% 
-    dplyr::pull(sigma) %>% 
-    round(., 2)
-  
-  mean_MO2 <- df_i %>% 
-    dplyr::reframe(mean = mean(MO2), na.rm = TRUE) %>% 
-    dplyr::pull(mean)
-  
-   x_max <- df_i %>%
-    dplyr::reframe(max = max(o2), na.rm = TRUE) %>% 
-    dplyr::pull(max)
-   
-   y_max <- df_i %>%
-    dplyr::reframe(max = max(MO2), na.rm = TRUE) %>% 
-    dplyr::pull(max)
-   
-  plot <- df_i %>% 
-    ggplot(aes(x = o2, y = MO2, weight = weight)) +
-    geom_point() +
-    geom_smooth(method = "lm", formula = y ~ poly(x, poly_i), se = FALSE, colour = "blue") +
-    geom_hline(yintercept = mean_MO2, colour = "grey", linetype = "dashed", linewidth = 1) + 
-    annotate("text", x = x_max/2, 
+  r_i <- best_weighted_model_i %>% 
+    dplyr::mutate(r_sq_ci = paste0(round(r2, 3), " (", 
+                                    round(r2_q2.5, 3), "–", 
+                                    round(r2_q97.5, 3), ")")) %>% 
+    dplyr::pull(r_sq_ci)
+
+  # Create the plot
+  p <- ggplot() +
+    geom_ribbon(data = df_i,
+                aes(x = DO, y = predicted, ymin = pred_lower, ymax = pred_upper, fill = model_type), alpha = 0.1) +
+    geom_line(data = df_i, 
+              aes(x = DO, y = predicted, colour = model_type, size = line_size, alpha = alpha_value)) +
+    geom_point(data = df_i %>% dplyr::filter(elpd_loo_rank == 1), aes(x = DO, y = MO2_g), alpha = 0.6, colour = "black", size = 2) +
+    scale_colour_manual(values = c("red", "blue", "green", "purple"), 
+                        labels = c("0th Order", "1st Order", "2nd Order", "3rd Order")) +
+    scale_size_identity() +  # Use the size values directly
+    scale_alpha_identity(guide = "none") +  # Remove the alpha legend 
+    annotate("text", x = x_min, 
              y = y_max, 
-             label = paste0(poly_i_name, "\n", "R = ", r, " Sigma = ", sigma), 
+             label = paste0("Best fit: ",poly_i_name, "\n", "r2 = ", r_i), 
              hjust = 0, vjust = 1, size = 4) +
     labs(
-    title = paste0(id_i),
-    x = "O2 (mg/L)",
-    y = "MO2 (mg O2 g/h)"
-    ) +
-    theme_minimal()
+      title = paste("Model Fits vs Raw Data for ID", id_i),
+      x = "Dissolved oxygen percentage (DO)",
+      y = "MO2 (o2 mg/g/h)",
+      colour = "Model") +
+    theme_classic()
   
-  print(plot)
+  # Store the plot
+  plots[[id_i]] <- p
+  
+  print(p)
+}
+
+
+#To save all plots to individual files
+for (id_i in ids) {
+  ggsave(filename = paste0(incremental_reg_bayes_wd, "./plot_", id_i, ".png"), plot = plots[[id_i]], width = 8, height = 6)
 }
 ```
 
+#HERE
+
+```{r}
+output_mods_bayes_global_wd <- paste0(output_mods_wd, "./bayes-regs-global")
+ifelse(!dir.exists(output_mods_bayes_global_wd), dir.create(output_mods_bayes_global_wd), "Folder already exists")
+```
+
+##Need only best fitting model
+Here we are grouping fish by best fitting model and getting an average trend  
+
+```{r}
+# 
+# best_fit <- bayes_reg_mods_predictions %>% 
+#   dplyr::filter(elpd_loo_rank == 1)
+# 
+# ids <- best_fit %>%
+#   dplyr::distinct(model_type) %>%
+#   pull(model_type)
+# 
+# plan(multisession)
+# 
+# future_map(
+#   ids,
+#   bayes_incremental_regression_by_id,
+#   id_name = "model_type",
+#   data = best_fit,
+#   response = "MO2_g",
+#   predictor = "DO",
+#   save_models = TRUE,
+#   mod_output_wd = output_mods_bayes_global_wd
+# )
+# 
+# plan(sequential)
+```
+
+```{r}
+bayes_reg_mods <- load_rds(model_dw = output_mods_bayes_global_wd)
+```
+
+
+```{r}
+# ggplot() +
+#   geom_ribbon(data = df_i,
+#               aes(x = DO, y = predicted, ymin = pred_lower, ymax = pred_upper, fill = model_type), alpha = 0.1) +
+#   geom_line(data = df_i,
+#             aes(x = DO, y = predicted, colour = model_type, size = line_size, alpha = alpha_value)) +
+#   geom_point(data = bayes_reg_mods_predictions %>% dplyr::filter(elpd_loo_rank == 1),
+#              aes(x = DO, y = MO2_g), alpha = 0.1, colour = "black", size = 1) +
+#   geom_line(data = bayes_reg_mods_predictions %>% dplyr::filter(elpd_loo_rank == 1),
+#             aes(x = DO, y = predicted, by = id), alpha = 0.2) +
+#   scale_colour_manual(values = c("red", "blue", "green", "purple"),
+#                       labels = c("0th Order", "1st Order", "2nd Order", "3rd Order")) +
+#   annotate("text", x = x_min,
+#            y = y_max,
+#            label = paste0("Best fit: ",poly_i_name, "\n", "r2 = ", r_i),
+#            hjust = 0, vjust = 1, size = 4) +
+#   facet_wrap(~model_type) +
+#   labs(
+#     title = paste("Model Fits vs Raw Data for ID", id_i),
+#     x = "Dissolved oxygen percentage (DO)",
+#     y = "MO2 (mg o2/g/h)",
+#     colour = "Model") +
+#   theme_classic()
+```
+
+```{r}
+# global_models <- list(
+#     lm_0 = lmer(MO2_g ~ 1 + (1|id), data = slope_tidy %>% 
+#                   dplyr::filter(poly == 0), weights = weight_smr),
+#     lm_1 = lmer(MO2_g ~ DO + (1|id), data = slope_tidy %>% 
+#                   dplyr::filter(poly == 1), weights = weight_smr),
+#     lm_2 = lmer(MO2_g ~ poly(DO, 2) + (1|id), data = slope_tidy %>% 
+#                   dplyr::filter(poly == 2), weights = weight_smr),
+#     lm_3 = lmer(MO2_g ~ poly(DO, 3) + (1|id), data = slope_tidy %>% 
+#                   dplyr::filter(poly == 3), weights = weight_smr)
+#   )
+# 
+# 
+# global_predictions <- data.frame(DO = seq(min(slope_tidy$DO), max(slope_tidy$DO), length.out = 100))
+# 
+# for (model_name in names(global_models)) {
+#   predictions <- predict(
+#     global_models[[model_name]], 
+#     newdata = global_predictions, 
+#     re.form = NA,  # Excludes random effects (population-level predictions)
+#     se.fit = TRUE  # Returns standard errors
+#   )
+#   
+#   global_predictions[[paste0(model_name, "_fit")]] <- predictions$fit
+#   global_predictions[[paste0(model_name, "_lwr")]] <- predictions$fit - 1.96 * predictions$se.fit
+#   global_predictions[[paste0(model_name, "_upr")]] <- predictions$fit + 1.96 * predictions$se.fit
+# }
+# 
+# global_predictions_long <- global_predictions %>%
+#   pivot_longer(
+#     cols = matches("lm_.*_fit|lm_.*_lwr|lm_.*_upr"),
+#     names_to = c("model", ".value"),
+#     names_pattern = "(lm_\\d+)_(.*)"
+#   ) %>%
+#   dplyr::mutate(best_model_name = case_when(
+#     model == "lm_0" ~ "0th-order polynomial",
+#     model == "lm_1" ~ "1st-order polynomial",
+#     model == "lm_2" ~ "2nd-order polynomial",
+#     model == "lm_3" ~ "3rd-order polynomial",
+#     TRUE ~ "ERROR"
+#   ))
+```
+
+Figure <br>
+
+```{r}
+# best_weighted_model_pred <- best_weighted_model %>% 
+#   dplyr::left_join(., model_preds_df, by = c("id", "model")) %>% 
+#   dplyr::ungroup() %>% 
+#   dplyr::mutate(best_model_name = case_when(
+#       poly == 0 ~ "0th-order polynomial",
+#       poly == 1 ~ "1st-order polynomial",
+#       poly == 2 ~ "2nd-order polynomial",
+#       poly == 3 ~ "3rd-order polynomial",
+#       TRUE ~ "ERROR"
+#     ))
+# 
+# annotation_data <- table_bwm %>%
+#   dplyr::select(best_model_name, n) 
+# 
+# fig_1 <- ggplot() +
+#   geom_line(data = best_weighted_model_pred, 
+#             aes(x = DO, y = MO2_pred, color = id), size = 1, alpha = 1) +
+#   geom_point(data = slope_tidy, aes(x = DO, y = MO2_g), alpha = 0.1, colour = "black", size = 2) +
+#   geom_ribbon(data = global_predictions_long, 
+#               aes(x = DO, ymin = lwr, ymax = upr, group = model), 
+#               fill = "#FC6C85", alpha = 0.2) +  # Shaded confidence intervals
+#   geom_line(data = global_predictions_long, 
+#             aes(x = DO, y = fit), size = 1.5, color = "#FF007F") +
+#   facet_wrap(~best_model_name) +
+#   scale_color_grey(start = 0.1, end = 0.9) +
+#   labs(
+#       title = paste("Model estimates and observed data grouped by best fitting model"),
+#       x = "Dissolved oxygen percentage (DO)",
+#       y = "MO2 (O2 mg/g/h)") +
+#   theme_classic() +
+#   theme(legend.position = "none") +
+#   geom_text(data = annotation_data, 
+#             aes(x = -Inf, y = Inf, label = paste0("italic(n) == ", n)), 
+#             hjust = -0.1, vjust = 1.2, inherit.aes = FALSE, parse = TRUE)
+# fig_1
+```
 
 ## Pcrit Chabot method
 
-Here we will calculate Pcrit using Chabot method and function calcO2crit. We are using our estimates for SMR (mean of lowest three). <br>
+For those fish that were best modelled with a 2nd or 3rd-order polynomial (*n* = 46) we will check to see if a Pcrit is present. We are filtering the data for only those fish. <br>
+
+
+```{r}
+check_pcrit_ids <- bayes_reg_mods_predictions %>% 
+  dplyr::filter(model_type == "lm_1") %>% 
+  dplyr::distinct(id) %>% 
+  dplyr::pull(id)
+
+check_pcrit_df <- slope_tidy %>% 
+  dplyr::filter(id %in% check_pcrit_ids)
+```
+
+
+We will calculate Pcrit using Chabot method and function calcO2crit. We are using our estimates for SMR (mean of lowest three). <br>
 
 This function uses the fifth percentile of the MO2 values observed at dissolved oxygen levels ≥ 80% air saturation as the criterion to assess low  MO2 values. The algorithm then identifies all the MO2 measurements greater than this minimally acceptable MO2 value. Within this sub-set, it identifies the ̇ MO2 measurement made at the lowest DO and thereafter considers this DO as candidate for breakpoint (named pivotDO in the script). A regression is then calculated using observations at DO levels < pivotDO, and a first estimate of O2crit is calculated as the intersection of this regression line with the horizontal line representing SMR. The script then goes through validation steps to ensure that the slope of the regression is not so low that the line, projected to normoxic DO levels, passes below any MO2 values observed in normoxia. It also ensures that the intercept is not greater than zero. Corrective measures are taken if such problems are encountered.<br>
 
-lowestMO2 default is the quantile(Data$MO2[Data$DO >= 80], p=0.05). It is used to segment the data and locate the pivotDO. 
+lowestMO2 default is the quantile(Data$MO2[Data$DO >= 80], p=0.05). It is used to segment the data and locate the pivotDO. <br>
 
 ```{r}
-ids <- labchart_tidy_fish %>% 
+ids <- check_pcrit_df %>% 
   dplyr::distinct(id) %>% 
   dplyr::pull()
 
@@ -1225,7 +1887,7 @@ pcrit_models <-  list()
 
 for (id_i in ids) {
 
-df_i <- labchart_tidy_fish %>% 
+df_i <- check_pcrit_df %>% 
   dplyr::filter(id == id_i)
 
 o2crit <- calcO2crit(Data = df_i, SMR = df_i$SMR[1], lowestMO2=NA, gapLimit = 4,
@@ -1261,7 +1923,7 @@ pcrit_model_df <- bind_rows(pcrit_model_df_list)
 
 ### Ploting Pcrit
 
-Here's the plots for the Pcrit estimates
+Here's the plots for the Pcrit estimates <br>
 
 ```{r}
 # Create output directory if needed
@@ -1270,7 +1932,7 @@ if (!dir.exists(output_fig_pcrit_chabot_wd)) {
   dir.create(output_fig_pcrit_chabot_wd)
 }
 
-ids <- labchart_tidy_fish %>% 
+ids <- check_pcrit_df %>% 
   dplyr::distinct(id) %>% 
   dplyr::pull()
 
@@ -1328,18 +1990,16 @@ for (id_i in ids) {
 dev.off()
 ```
 
-<br>
-Printing in htlm document 
-
+Printing in htlm document <br>
 
 ```{r}
-ids <- labchart_tidy_fish %>% 
+ids <- check_pcrit_df %>% 
   dplyr::distinct(id) %>% 
   dplyr::pull()
 
 for (id_i in ids) {
   
-  comment <- labchart_tidy_fish %>% 
+  comment <- check_pcrit_df %>% 
     dplyr::filter(id == id_i) %>% 
     dplyr::slice(1) %>% 
     dplyr::mutate(comment = if_else(is.na(comments), "", paste0("#", comments))) %>% 
@@ -1388,32 +2048,26 @@ for (id_i in ids) {
 }
 ```
 
+### Pcrit rules 
 
-### Pcrit identified 
+We need to set some rules as to when the Pcrit estimates are reliable, as it seems many of our fish do not reach a Pcrit. <br>
 
-We need to set some rules as to when the Pcrit estimates are reliable, as it seems many of our fish do not seem to reach a Pcrit. <br>
-
-We can filter for only cases were at the lowest O2 value three consecutive MO2 measures full below our SMR and fifth percentile of the MO2 values observed at dissolved O2 levels >80%. In the model output these are called nb_mo2_conforming points. 
+We can filter for only cases were at the lowest O2 value three consecutive MO2 measures full below our SMR and fifth percentile of the MO2 values observed at dissolved O2 levels > 80%. In the model output these are called nb_mo2_conforming points. We can the visually inspect these to see if a Pcrit is present. 
 
 ```{r}
 pcrit_list <- pcrit_model_df %>% 
   dplyr::filter(pcrit_nb_mo2_conforming > 2) %>% 
   pull(id)
 
-mean_pcrit <-  pcrit_model_df %>% 
-  dplyr::filter(pcrit_nb_mo2_conforming > 2) %>% 
-  dplyr::reframe(mean = mean(pcrit_vaule)) %>% 
-  pull(mean)
-
-paste0("There are ", length(pcrit_list), " fish with identified Pcrits. ",
-       "The mean Pcrit is ", round(mean_pcrit,2))
+paste0("Based on this rule there are ", length(pcrit_list), " fish with possible Pcrits.")
 ```
 
+Here are the plots of these 13 fish for visual confirmation <br>
 
 ```{r}
 for (id_i in pcrit_list) {
   
-  comment <- labchart_tidy_fish %>% 
+  comment <- check_pcrit_df %>% 
     dplyr::filter(id == id_i) %>% 
     dplyr::slice(1) %>% 
     dplyr::mutate(comment = if_else(is.na(comments), "", paste0("#", comments))) %>% 
@@ -1462,10 +2116,395 @@ for (id_i in pcrit_list) {
 }
 ```
 
-## Caculating Pcrit with Chabot SMR
+### Pcrits numbers
+
+Based on visual checks the following fish do have clear Pcrit values
+```{r}
+do_have_pcrit <- c("a_9_21nov_3", "b_0_24nov_1", "b_0_24nov_2", "b_0_25nov_1", "b_0_25nov_3", "b_0_26_nov_1", "b_9_21_nov_1", "b_9_21nov_2", "b_9_21nov_3", "d_0_21nov_3")
+
+n_pcrit <- length(do_have_pcrit)
+
+have_pcirt <- pcrit_model_df %>% 
+  dplyr::filter(id %in% do_have_pcrit)
+
+mean_pcrit <- have_pcirt %>% 
+  dplyr::reframe(mean = mean(pcrit_vaule)) %>% 
+  pull(mean) %>% 
+  round(., 2)
+
+min_pcrit <- have_pcirt %>% 
+  dplyr::reframe(min = min(pcrit_vaule)) %>% 
+  pull(min) %>% 
+  round(., 2)
+
+max_pcrit <- have_pcirt %>% 
+  dplyr::reframe(max = max(pcrit_vaule)) %>% 
+  pull(max) %>% 
+  round(., 2)
+
+print(paste0("There are ", n_pcrit, " fish with identified Pcrits and the mean Pcrit is ", mean_pcrit, " (range: ", 
+             min_pcrit, "–", max_pcrit, ")"))
+```
+
+
+# Additional code used to validate approach
+
+### Frequentist weighted regressions
+
+We will use weighted regression to account for a higher density of data at normoxic conditions (i.e. SMR values). I have used two different weighting approaches, (1) weighting the importance of each data point based on the frequency of points in a given o2 space (12 evenly spaced bins), or (2) weighting only the SMR slopes, as they are the only values that have repeated measures. Points that have higher weights influence the model fit more, while points with lower weights have less impact. A high density of points at high o2 values could lead to overfitting in that region, while underfitting or misrepresenting trends in lower-density regions (e.g., low o2 vaules). <br>
+
+Here we are making the two weightings. The first is achieved by spiting the o2 data in 12 evenly spaced bins, and summing the number of data points in that bin, the weight is then given to data points within that bin based on the inverse frequency of data points.The second methods, is simply applied to the SMR measurements, and is the inverse frequency of SMR measurements. <br>
 
 ```{r}
-ids <- labchart_tidy_fish %>% 
+slope_tidy <- slope_tidy %>%
+  dplyr::group_by(id) %>% 
+  dplyr::mutate(o2_bin = cut(DO, breaks = 12),
+                weight_smr = if_else(phase == "smr", 1/sum(phase == "smr"), 1)) %>% 
+  ungroup() %>%
+  dplyr::group_by(id, o2_bin) %>% 
+  dplyr::mutate(
+    bin_freq = length(order),          # Count points in each bin
+    weight_bins = 1 / bin_freq           # Weight = inverse frequency
+      ) %>% 
+  ungroup()
+```
+
+Here we are building the weighted regressions. <br>
+
+```{r}
+ids <- slope_tidy %>%
+  dplyr::distinct(id) %>%
+  pull(id) %>%
+  as.list()
+
+weighted_model_comparison_list <- list()
+
+weighted_model_results_list <- list()
+
+for (id_i in ids) {
+  
+  # Filter data for the current ID
+  df_i <- slope_tidy %>%
+    dplyr::filter(id == id_i)
+  
+  
+  # Fit models with weights
+  models <- list(
+    lm_0 = lm(MO2_g ~ 1, data = df_i, weights = weight_smr),                # 0th-order (constant mean)
+    lm_1 = lm(MO2_g ~ DO, data = df_i, weights = weight_smr),               # 1st-order (linear)
+    lm_2 = lm(MO2_g ~ poly(DO, 2), data = df_i, weights = weight_smr),      # 2nd-order (quadratic)
+    lm_3 = lm(MO2_g ~ poly(DO, 3), data = df_i, weights = weight_smr)       # 3rd-order (cubic)
+  )
+  
+  # Extract metrics to compare models
+  weighted_model_comparison_list[[id_i]] <- purrr::map_df(models, glance, .id = "model") %>%
+    dplyr::mutate(id = id_i) %>%
+    dplyr::select(id, everything())
+  
+  weighted_model_results_list[[id_i]] <- map_df(models, ~ tidy(.x, conf.int = TRUE), .id = "model") %>%
+    clean_names() %>% 
+    mutate(id = id_i) %>%
+    select(id, everything())
+}
+
+# Combine dataframes into a single data frame
+weighted_model_comparison <- bind_rows(weighted_model_comparison_list) %>%
+  dplyr::mutate(poly = as.numeric(stringr::str_remove_all(model, "lm_")))
+
+weighted_model_results <- bind_rows(weighted_model_results_list) %>%
+  dplyr::mutate(poly = as.numeric(stringr::str_remove_all(model, "lm_")))
+```
+
+Selecting the best fitting model <br>
+
+```{r}
+best_weighted_model <- weighted_model_comparison %>% 
+  dplyr::group_by(id) %>%
+  dplyr::mutate(
+    AIC_rank = rank(-AIC),  # Rank descending for AIC
+    BIC_rank = rank(-BIC),  # Rank descending for BIC
+    logLik_rank = rank(logLik),  # Rank ascending for logLik
+    score = AIC_rank + BIC_rank + logLik_rank  # Combined score
+  ) %>%
+  dplyr::arrange(desc(score)) %>%  # Arrange by descending score
+  dplyr::slice(1)
+```
+
+Now we are plotting each of the regressions. First making a directory to save the figures <br>
+
+```{r}
+incremental_reg_freq_wd <- file.path(output_fig_wd, "incremental_regressions./freq")
+if (!dir.exists(incremental_reg_freq_wd)) {
+  dir.create(incremental_reg_freq_wd)
+}
+```
+
+Ploting all regression, and highlighting the model that has the best fit, based on AIC values <br>
+
+```{r}
+# Create a list to store the plots
+plots <- list()
+model_preds_list <- list()
+
+for (id_i in ids) {
+  
+  # Filter data for the current ID
+  df_i <- slope_tidy %>%
+    filter(id == id_i)
+  
+  x_min <- df_i %>%
+    dplyr::reframe(min = min(DO), na.rm = TRUE) %>% 
+    dplyr::pull(min)
+  
+  y_max <- df_i %>%
+    dplyr::reframe(max = max(MO2_g), na.rm = TRUE) %>% 
+    dplyr::pull(max)
+  
+  # Get model predictions
+  df_predictions <- data.frame(DO = seq(min(df_i$DO), max(df_i$DO), length.out = 100))
+  df_predictions$id <- id_i
+  
+
+  # Generate predictions for each model
+  models <- list(
+    lm_0 = lm(MO2_g ~ 1, data = df_i, weights = df_i$weight_smr),
+    lm_1 = lm(MO2_g ~ DO, data = df_i, weights = df_i$weight_smr),
+    lm_2 = lm(MO2_g ~ poly(DO, 2), data = df_i, weights = df_i$weight_smr),
+    lm_3 = lm(MO2_g ~ poly(DO, 3), data = df_i, weights = df_i$weight_smr)
+  )
+  
+  best_weighted_model_i <- best_weighted_model %>% 
+    dplyr::filter(id == id_i)
+  
+  poly_i_name <- best_weighted_model_i %>%
+    dplyr::mutate(name = case_when(
+      poly == 0 ~ "0th-order polynomial",
+      poly == 1 ~ "1st-order polynomial",
+      poly == 2 ~ "2nd-order polynomial",
+      poly == 3 ~ "3rd-order polynomial",
+      TRUE ~ "ERROR"
+    )) %>% 
+    dplyr::pull(name)
+  
+  r_i <- best_weighted_model_i %>% 
+    dplyr::pull(r.squared) %>% 
+    round(., 3)
+  
+  p_value_i <- best_weighted_model_i %>% 
+    dplyr::pull(p.value) %>% 
+    round(., 3)
+  
+  p_value_i <- if_else(p_value_i < 0.001, "< 0.001", paste0("= ", p_value_i))
+  
+  model_i <- best_weighted_model_i %>% 
+    dplyr::pull(model)
+  
+  # Add predictions to the dataframe
+  for (model_name in names(models)) {
+    df_predictions[[model_name]] <- predict(models[[model_name]], newdata = df_predictions)
+  }
+  
+  # Reshape data for plotting
+  df_predictions_long <- df_predictions %>%
+    pivot_longer(cols = starts_with("lm_"), names_to = "model", values_to = "MO2_pred") %>%
+    mutate(line_size = if_else(model == model_i, 2, 1),
+           alpha_value = if_else(model == model_i, 1, 0.4))
+  
+  # Create the plot
+  p <- ggplot() +
+    geom_point(data = df_i, aes(x = DO, y = MO2_g), alpha = 0.6, colour = "black", size = 2) +
+    geom_line(data = df_predictions_long, 
+              aes(x = DO, y = MO2_pred, colour = model, size = line_size, alpha = alpha_value)) +
+    scale_colour_manual(values = c("red", "blue", "green", "purple"), 
+                        labels = c("0th Order", "1st Order", "2nd Order", "3rd Order")) +
+    scale_size_identity() +  # Use the size values directly
+    scale_alpha_identity(guide = "none") +  # Remove the alpha legend 
+    annotate("text", x = x_min, 
+             y = y_max, 
+             label = paste0("Best fit: ",poly_i_name, "\n", "R = ", r_i, "; P ", p_value_i), 
+             hjust = 0, vjust = 1, size = 4) +
+    labs(
+      title = paste("Model Fits vs Raw Data for ID", id_i),
+      x = "Dissolved oxygen percentage (DO)",
+      y = "MO2 (o2 mg/g/h)",
+      colour = "Model") +
+    theme_classic()
+  
+  # Store the plot
+  plots[[id_i]] <- p
+  model_preds_list[[id_i]] <- df_predictions_long
+  
+  print(p)
+}
+
+
+#To save all plots to individual files
+for (id_i in ids) {
+  ggsave(filename = paste0(incremental_reg_freq_wd, "./plot_", id_i, ".png"), plot = plots[[id_i]], width = 8, height = 6)
+}
+
+model_preds_df <- bind_rows(model_preds_list)
+```
+
+
+The best fitting models were most often a 3rd-order polynomial (*n* = 27, 46.55%) or a 2nd-order polynomial (*n* = 19, 32.76%). This could suggest the presence of a critical oxygen threshold (Pcrit) where the relationship between o2 and MO2 changes. To confirm their is a Pcrit, we need to validated the shape of the polynomials and in should use a more specific model to test the Pcrit value. This type of model is indicative of **oxyregulator**. <br>
+
+The next most common are 0th-order and 1st-order polynomials (both *n* = 6, 10.34%). In the case of the 0th-order model, it suggests that MO2 does not show a statistically significant dependence on the o2. In other words, the metabolic rate does not adjust based on oxygen availability, and there is no clear critical oxygen threshold (Pcrit) where the relationship changes. This is indicative of a **oxyregulator**. In the case of the 1st-order polynomials, it suggest the presences of linear relationship between o2 and MO2, which is indicative of **oxyconformer**. However, to be true evidence of a oxyconformer this relationship should be positive (i.e. as o2 falls MO2 also falls). Only 3 of the 6 individuals best modelled with a linear function were positive, and only 2 were statistically significant (Table 1). <br>
+
+```{r}
+total_fish <- nrow(best_weighted_model)
+
+table_bwm <- best_weighted_model %>% 
+  dplyr::group_by(poly) %>% 
+  dplyr::reframe(n = length(id),
+                 percent = round((n/total_fish)*100,2)) %>% 
+  dplyr::mutate(best_model_name = case_when(
+      poly == 0 ~ "0th-order polynomial",
+      poly == 1 ~ "1st-order polynomial",
+      poly == 2 ~ "2nd-order polynomial",
+      poly == 3 ~ "3rd-order polynomial",
+      TRUE ~ "ERROR"
+    )) %>% 
+  dplyr::select(best_model_name, everything(), -poly)
+
+
+table_bwm %>% 
+   gt() %>% 
+  cols_align(
+    align = "center", 
+    columns = everything()
+  )
+```
+
+Adding model information to the full data frame <br>
+
+```{r}
+slope_tidy <- full_join(slope_tidy, best_weighted_model, by = "id") %>% 
+  dplyr::rename(model_freq = model,
+                r_squared_freq =  r.squared,
+                adj_r_squared_freq = adj.r.squared,
+                sigma_freq = sigma) %>% 
+  dplyr::mutate(best_model_name = case_when(
+      poly == 0 ~ "0th-order polynomial",
+      poly == 1 ~ "1st-order polynomial",
+      poly == 2 ~ "2nd-order polynomial",
+      poly == 3 ~ "3rd-order polynomial",
+      TRUE ~ "ERROR"))
+```
+
+Here we are grouping fish by best fitting model and getting an average trend  
+
+```{r}
+global_models <- list(
+    lm_0 = lmer(MO2_g ~ 1 + (1|id), data = slope_tidy %>% 
+                  dplyr::filter(poly == 0), weights = weight_smr),
+    lm_1 = lmer(MO2_g ~ DO + (1|id), data = slope_tidy %>% 
+                  dplyr::filter(poly == 1), weights = weight_smr),
+    lm_2 = lmer(MO2_g ~ poly(DO, 2) + (1|id), data = slope_tidy %>% 
+                  dplyr::filter(poly == 2), weights = weight_smr),
+    lm_3 = lmer(MO2_g ~ poly(DO, 3) + (1|id), data = slope_tidy %>% 
+                  dplyr::filter(poly == 3), weights = weight_smr)
+  )
+
+
+global_predictions <- data.frame(DO = seq(min(slope_tidy$DO), max(slope_tidy$DO), length.out = 100))
+
+for (model_name in names(global_models)) {
+  predictions <- predict(
+    global_models[[model_name]], 
+    newdata = global_predictions, 
+    re.form = NA,  # Excludes random effects (population-level predictions)
+    se.fit = TRUE  # Returns standard errors
+  )
+  
+  global_predictions[[paste0(model_name, "_fit")]] <- predictions$fit
+  global_predictions[[paste0(model_name, "_lwr")]] <- predictions$fit - 1.96 * predictions$se.fit
+  global_predictions[[paste0(model_name, "_upr")]] <- predictions$fit + 1.96 * predictions$se.fit
+}
+
+global_predictions_long <- global_predictions %>%
+  pivot_longer(
+    cols = matches("lm_.*_fit|lm_.*_lwr|lm_.*_upr"),
+    names_to = c("model", ".value"),
+    names_pattern = "(lm_\\d+)_(.*)"
+  ) %>%
+  dplyr::mutate(best_model_name = case_when(
+    model == "lm_0" ~ "0th-order polynomial",
+    model == "lm_1" ~ "1st-order polynomial",
+    model == "lm_2" ~ "2nd-order polynomial",
+    model == "lm_3" ~ "3rd-order polynomial",
+    TRUE ~ "ERROR"
+  ))
+```
+
+Figure <br>
+
+```{r}
+best_weighted_model_pred <- best_weighted_model %>% 
+  dplyr::left_join(., model_preds_df, by = c("id", "model")) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::mutate(best_model_name = case_when(
+      poly == 0 ~ "0th-order polynomial",
+      poly == 1 ~ "1st-order polynomial",
+      poly == 2 ~ "2nd-order polynomial",
+      poly == 3 ~ "3rd-order polynomial",
+      TRUE ~ "ERROR"
+    ))
+
+annotation_data <- table_bwm %>%
+  dplyr::select(best_model_name, n) 
+
+fig_1 <- ggplot() +
+  geom_line(data = best_weighted_model_pred, 
+            aes(x = DO, y = MO2_pred, color = id), size = 1, alpha = 1) +
+  geom_point(data = slope_tidy, aes(x = DO, y = MO2_g), alpha = 0.1, colour = "black", size = 2) +
+  geom_ribbon(data = global_predictions_long, 
+              aes(x = DO, ymin = lwr, ymax = upr, group = model), 
+              fill = "#FC6C85", alpha = 0.2) +  # Shaded confidence intervals
+  geom_line(data = global_predictions_long, 
+            aes(x = DO, y = fit), size = 1.5, color = "#FF007F") +
+  facet_wrap(~best_model_name) +
+  scale_color_grey(start = 0.1, end = 0.9) +
+  labs(
+      title = paste("Model estimates and observed data grouped by best fitting model"),
+      x = "Dissolved oxygen percentage (DO)",
+      y = "MO2 (O2 mg/g/h)") +
+  theme_classic() +
+  theme(legend.position = "none") +
+  geom_text(data = annotation_data, 
+            aes(x = -Inf, y = Inf, label = paste0("italic(n) == ", n)), 
+            hjust = -0.1, vjust = 1.2, inherit.aes = FALSE, parse = TRUE)
+fig_1
+```
+
+
+<br>
+For the 6 fish that had o2 and MO2 relationships best modelled with a linear function, only 6 are were positive relationships (which we would expect if fish were oxyconforming), and none are statistically significant. <br>
+
+```{r}
+ids_lm_1_list <- best_weighted_model %>% 
+  dplyr::filter(model == "lm_1") %>% 
+  dplyr::pull(id)
+
+weighted_model_results %>% 
+  dplyr::filter(id %in% ids_lm_1_list & model == "lm_1" & term == "DO") %>% 
+  dplyr::mutate(estimate = round(estimate, 5),
+                ci = paste0(round(conf_low,5), " – ", round(conf_high,5)),
+                p_value = round(p_value, 3)) %>% 
+  dplyr::select(id, estimate, ci, p_value) %>% 
+  gt() %>% 
+  cols_align(
+    align = "center", 
+    columns = everything()
+  )
+```
+
+## Caculating Pcrit with Chabot SMR
+
+Here we build the same models as above but using the SMR estimated with the Chabot methods. <br>
+
+```{r}
+ids <- check_pcrit_df %>% 
   dplyr::distinct(id) %>% 
   dplyr::pull()
 
@@ -1474,7 +2513,7 @@ pcrit_models_2 <-  list()
 
 for (id_i in ids) {
 
-df_i <- labchart_tidy_fish %>% 
+df_i <- check_pcrit_df %>% 
   dplyr::filter(id == id_i)
 
 o2crit <- calcO2crit(Data = df_i, SMR = df_i$SMR_CHABOT[1], lowestMO2=NA, gapLimit = 4,
@@ -1508,16 +2547,22 @@ pcrit_models_2[[id_i]] <- o2crit
 pcrit_model_df_2 <- bind_rows(pcrit_model_df_list_2)
 ```
 
+Now filtering out based on the same rules above <br>
+
+```{r}
+pcrit_list_2 <- pcrit_model_df_2 %>% 
+  dplyr::filter(pcrit_nb_mo2_conforming > 2) %>% 
+  pull(id)
+
+paste0("Based on this rule there are ", length(pcrit_list_2), " fish with possible Pcrits.")
+```
+
 Plotting with the SMR Chabot method
 
 ```{r}
-ids <- labchart_tidy_fish %>% 
-  dplyr::distinct(id) %>% 
-  dplyr::pull()
-
-for (id_i in ids) {
+for (id_i in pcrit_list) {
   
-  comment <- labchart_tidy_fish %>% 
+  comment <- check_pcrit_df %>% 
     dplyr::filter(id == id_i) %>% 
     dplyr::slice(1) %>% 
     dplyr::mutate(comment = if_else(is.na(comments), "", paste0("#", comments))) %>% 
@@ -1565,10 +2610,47 @@ for (id_i in ids) {
   )
 }
 ```
+```{r}
+have_pcirt_2 <-  c("a_9_21nov_3", "b_0_24_nov_1", "b_0_24nov_2", "b_0_25nov_1", "b_0_25nov_3", "b_0_26_1", "b_9_21nov_1", "b_9_21nov_2", "b_9_21nov_3", "d_0_21nov_3")
+
+length(have_pcirt_2)
+```
+
+
+### Pcrits numbers
+
+Based on visual checks the following fish do have clear Pcrit values
+
+```{r}
+do_have_pcirt_2 <-  c("a_9_21nov_3", "b_0_24_nov_1", "b_0_24nov_2", "b_0_25nov_1", "b_0_25nov_3", "b_0_26_1", "b_9_21nov_1", "b_9_21nov_2", "b_9_21nov_3", "d_0_21nov_3")
+
+n_pcrit <- length(do_have_pcirt_2)
+
+have_pcirt_2 <- pcrit_model_df_2 %>% 
+  dplyr::filter(id %in% do_have_pcirt_2)
+
+mean_pcrit <- have_pcirt_2 %>% 
+  dplyr::reframe(mean = mean(pcrit_vaule)) %>% 
+  pull(mean) %>% 
+  round(., 2)
+
+min_pcrit <- have_pcirt_2 %>% 
+  dplyr::reframe(min = min(pcrit_vaule)) %>% 
+  pull(min) %>% 
+  round(., 2)
+
+max_pcrit <- have_pcirt_2 %>% 
+  dplyr::reframe(max = max(pcrit_vaule)) %>% 
+  pull(max) %>% 
+  round(., 2)
+
+print(paste0("There are ", n_pcrit, " fish with identified Pcrits and the mean Pcrit is ", mean_pcrit, " (range: ", 
+             min_pcrit, "–", max_pcrit, ")"))
+```
 
 ## Other techniques for Pcrit calculation
 
-Here using the *100 closed trials* we will estimate Pcrit with five popular techniques for Pcrit calculation: the traditional breakpoint metric (broken stick regression), the nonlinear regression metric (Marshall et al. 2013), the sub-prediction interval metric (Birk et al. 2019), the alpha-based Pcrit method (Seibel et al. 2021), and the linear low O2 (LLO) method (Reemeyer & Rees 2019).  <br>
+Here using the the fish that were detriment to have Pcrits, we will also estimate Pcrit with five popular techniques for Pcrit calculation: the traditional breakpoint metric (broken stick regression), the nonlinear regression metric (Marshall et al. 2013), the sub-prediction interval metric (Birk et al. 2019), the alpha-based Pcrit method (Seibel et al. 2021), and the linear low O2 (LLO) method (Reemeyer & Rees 2019).  <br>
 
 The function is called calc_pcrit() and is part of the respirometry package. <br>
 
@@ -1593,79 +2675,86 @@ Parameters to consider <br>
 
 ### Formate data
 
-We will only use 100 c trails for this.
+We will only those that may have a Pcirt, we will also need to weight the SMR vaules some way. In this case there is not easy way to weight the models themsevles, so instead we can just take a aveage of the SMR values and use only that <br>
 
 ```{r}
-# labchart_tidy_fish_100c <- labchart_tidy_fish %>% 
-#   dplyr::filter(phase == "100c")
-# 
-# labchart_tidy_fish_100c_n <- labchart_tidy_fish_100c %>% 
-#   dplyr::distinct(id) %>% 
-#   nrow(.)
-# 
-# paste0("n for 100 closed = ", labchart_tidy_fish_100c_n)
+pcrit_check_smr_df <- slope_tidy %>%
+  dplyr::filter(id %in% pcrit_list & phase == "smr") %>% 
+  dplyr::group_by(id) %>% 
+  dplyr::reframe(DO = mean(DO, na.rm = TRUE),
+                 MO2 = SMR[1],
+                 SMR = SMR[1])
+
+pcrit_check_closed_df <- slope_tidy %>%
+  dplyr::filter(id %in% pcrit_list & phase != "smr") %>% 
+  dplyr::select(id, DO, MO2, SMR)
+
+pcrit_check_df <- rbind(pcrit_check_smr_df, pcrit_check_closed_df)
+
+pcrit_check_df_n <- pcrit_check_df %>%
+  dplyr::distinct(id) %>%
+  nrow(.)
+
+paste0("n for possible Pcrit = ", pcrit_check_df_n)
 ```
-<br>
-Here we build the models 
+
+Here we build the models <br>
 
 ```{r}
-# combined_pcirt_list <- list()
-# 
-# ids <- labchart_tidy_fish_100c %>% 
-#   dplyr::distinct(id) %>% 
-#   pull(id) %>% 
-#   as.list()
-# 
-# 
-# for (id_i in ids) {
-# 
-#   id_name <- id_i
-#   
-#   mo2_data <- labchart_tidy_fish_100c %>% 
-#     dplyr::filter(id == id_i)
-#   
-#   MR_set <- mo2_data$SMR[1] %>% as.numeric()
-#   
-#   # Use tryCatch to handle errors and skip problematic calculations
-#   pcrit_df <- tryCatch({
-#     
-#     pcrit_df <- calc_pcrit(po2 = mo2_data$o2, 
-#            mo2 = mo2_data$MO2, 
-#            method = 'All',
-#            avg_top_n = 2, # alpha metric (default = 1) recommend no more than 3
-#            level = 0.95, # Sub_PI metric (default = 0.95)
-#            iqr = 1.5, # Sub_PI metric (default = 1.5)
-#            NLR_m = 0.065, # NLR metric (default = 0.065)
-#            MR = MR_set, # alpha and LLO metrics,
-#            mo2_threshold = Inf, # alpha metric
-#            return_models = FALSE # return model parameters?
-#            ) %>%
-#       as.data.frame() %>%
-#       rownames_as_column(var = "method") %>%
-#       rename(value = ".") %>%
-#       tidyr::pivot_wider(.,
-#                      names_from = method,
-#                      values_from = value) %>%
-#       dplyr::mutate(id = id_name) %>%
-#       dplyr::select(id, everything())
-#     
-#   }, error = function(e) {
-#     message("Skipping channel ", id_name, " due to error: ", conditionMessage(e))
-#     NULL
-#   })
-#   
-#   # Only add to list if pcrit_df is not NULL
-#   if (!is.null(pcrit_df)) {
-#     combined_pcirt_list[[id_name]] <- pcrit_df
-#   }
-# }
+combined_pcirt_list <- list()
+
+for (id_i in pcrit_list) {
+
+  id_name <- id_i
+
+  mo2_data <- pcrit_check_df %>%
+    dplyr::filter(id == id_i)
+
+  MR_set <- mo2_data$SMR[1] %>% as.numeric()
+
+  # Use tryCatch to handle errors and skip problematic calculations
+  pcrit_df <- tryCatch({
+
+    pcrit_df <- calc_pcrit(po2 = mo2_data$DO,
+           mo2 = mo2_data$MO2,
+           method = 'All',
+           avg_top_n = 2, # alpha metric (default = 1) recommend no more than 3
+           level = 0.95, # Sub_PI metric (default = 0.95)
+           iqr = 1.5, # Sub_PI metric (default = 1.5)
+           NLR_m = 0.065, # NLR metric (default = 0.065)
+           MR = MR_set, # alpha and LLO metrics,
+           mo2_threshold = Inf, # alpha metric
+           return_models = FALSE # return model parameters?
+           ) %>%
+      as.data.frame() %>%
+      rownames_as_column(var = "method") %>%
+      rename(value = ".") %>%
+      tidyr::pivot_wider(.,
+                     names_from = method,
+                     values_from = value) %>%
+      dplyr::mutate(id = id_name) %>%
+      dplyr::select(id, everything())
+
+  }, error = function(e) {
+    message("Skipping channel ", id_name, " due to error: ", conditionMessage(e))
+    NULL
+  })
+
+  # Only add to list if pcrit_df is not NULL
+  if (!is.null(pcrit_df)) {
+    combined_pcirt_list[[id_name]] <- pcrit_df
+  }
+}
 ```
 
 <br>
 Combined all the Pcrit model estimates together 
 
 ```{r}
-# pcirt <- bind_rows(combined_pcirt_list)
+pcirt <- bind_rows(combined_pcirt_list)
+
+id_s_comp <- pcirt %>% 
+  dplyr::pull()
 ```
 
 ### Plotting Pcrit
@@ -1673,101 +2762,91 @@ Combined all the Pcrit model estimates together
 Here we will save the plots for the various Pcrit curves.
 
 ```{r}
-# # Create output directory if needed
-# output_fig_pcrit_100c_wd <- file.path(output_fig_wd, "pcrit-100c")
-# if (!dir.exists(output_fig_pcrit_100c_wd)) {
-#   dir.create(output_fig_pcrit_100c_wd)
-# }
-# 
-# ids <- labchart_tidy_fish_100c %>% 
-#   dplyr::distinct(id) %>% 
-#   pull(id) %>% 
-#   as.list()
-# 
-# # Open a single PDF device once
-# pdf(file = file.path(output_fig_pcrit_100c_wd, "combined_pcrit_plots.pdf"), 
-#     width = 8, height = 6)
-# 
-# for (id_i in ids) {
-#   
-#   id_name <- id_i
-#   
-#   mo2_data <- labchart_tidy_fish_100c %>% 
-#     dplyr::filter(id == id_i)
-#   
-#   MR_set <- mo2_data$SMR[1] %>% as.numeric()
-#   
-#   tryCatch({
-#     # Generate and render the plot
-#     plot_pcrit(
-#       po2 = mo2_data$o2, 
-#       mo2 = mo2_data$MO2, 
-#       method = 'All',
-#       avg_top_n = 1, 
-#       level = 0.95, 
-#       iqr = 1.5, 
-#       NLR_m = 0.065, 
-#       MR = MR_set, 
-#       mo2_threshold = Inf, 
-#       return_models = FALSE, 
-#       showNLRs = FALSE
-#     )
-#     
-#     # Add a title in the top-left corner
-#     mtext(text = paste(id_name),
-#           side = 3, line = 2, adj = 0, # Top margin, aligned to left
-#           col = "blue", font = 2, cex = 1.2)
-#     
-#   }, error = function(e) {
-#     message("Skipping channel ", id_name, " due to error: ", conditionMessage(e))
-#   })
-# }
-# 
-# # Close the PDF device *after* the loop
-# dev.off()
+# Create output directory if needed
+output_fig_pcrit_alternative_wd <- file.path(output_fig_wd, "pcrit-alternative")
+if (!dir.exists(output_fig_pcrit_alternative_wd)) {
+  dir.create(output_fig_pcrit_alternative_wd)
+}
+
+# Open a single PDF device once
+pdf(file = file.path(output_fig_pcrit_alternative_wd, "combined_pcrit_plots.pdf"),
+    width = 8, height = 6)
+
+for (id_i in pcrit_list) {
+
+  id_name <- id_i
+
+  mo2_data <- pcrit_check_df %>%
+    dplyr::filter(id == id_i)
+
+  MR_set <- mo2_data$SMR[1] %>% as.numeric()
+
+  tryCatch({
+    # Generate and render the plot
+    plot_pcrit(
+      po2 = mo2_data$DO,
+      mo2 = mo2_data$MO2,
+      method = 'All',
+      avg_top_n = 1,
+      level = 0.95,
+      iqr = 1.5,
+      NLR_m = 0.065,
+      MR = MR_set,
+      mo2_threshold = Inf,
+      return_models = FALSE,
+      showNLRs = FALSE
+    )
+
+    # Add a title in the top-left corner
+    mtext(text = paste(id_name),
+          side = 3, line = 2, adj = 0, # Top margin, aligned to left
+          col = "blue", font = 2, cex = 1.2)
+
+  }, error = function(e) {
+    message("Skipping channel ", id_name, " due to error: ", conditionMessage(e))
+  })
+}
+
+# Close the PDF device *after* the loop
+dev.off()
 ```
 
 <br>
 Plotting in the html. None of the models appear to estimate a Pcrit value convincingly. 
 
 ```{r}
-# ids <- labchart_tidy_fish_100c %>% 
-#   dplyr::distinct(id) %>% 
-#   pull(id) %>% 
-#   as.list()
-# 
-# for (id_i in ids) {
-#   
-#   id_name <- id_i
-#   
-#   mo2_data <- labchart_tidy_fish_100c %>% 
-#     dplyr::filter(id == id_i)
-#   
-#   MR_set <- mo2_data$SMR[1] %>% as.numeric()
-#   
-#   tryCatch({
-#     # Generate and render the plot
-#     plot_pcrit(
-#       po2 = mo2_data$DO, 
-#       mo2 = mo2_data$MO2, 
-#       method = 'All',
-#       avg_top_n = 1, 
-#       level = 0.95, 
-#       iqr = 1.5, 
-#       NLR_m = 0.065, 
-#       MR = MR_set, 
-#       mo2_threshold = Inf, 
-#       return_models = FALSE, 
-#       showNLRs = FALSE
-#     )
-#     
-#     # Add a title in the top-left corner
-#     mtext(text = paste(id_name),
-#           side = 3, line = 2, adj = 0, # Top margin, aligned to left
-#           col = "blue", font = 2, cex = 1.2)
-#     
-#   }, error = function(e) {
-#     message("Skipping channel ", id_name, " due to error: ", conditionMessage(e))
-#   })
-# }
+for (id_i in pcrit_list) {
+
+  id_name <- id_i
+
+  mo2_data <- pcrit_check_df %>%
+    dplyr::filter(id == id_i)
+
+  MR_set <- mo2_data$SMR[1] %>% as.numeric()
+
+  tryCatch({
+    # Generate and render the plot
+    plot_pcrit(
+      po2 = mo2_data$DO,
+      mo2 = mo2_data$MO2,
+      method = 'All',
+      avg_top_n = 1,
+      level = 0.95,
+      iqr = 1.5,
+      NLR_m = 0.065,
+      MR = MR_set,
+      mo2_threshold = Inf,
+      return_models = FALSE,
+      showNLRs = FALSE
+    )
+
+    # Add a title in the top-left corner
+    mtext(text = paste(id_name),
+          side = 3, line = 2, adj = 0, # Top margin, aligned to left
+          col = "blue", font = 2, cex = 1.2)
+
+  }, error = function(e) {
+    message("Skipping channel ", id_name, " due to error: ", conditionMessage(e))
+  })
+}
 ```

@@ -7,6 +7,6 @@ gmac-labchart-24.log
 gmac-labchart-24.html
 /gmac-labchart-24_cache/
 /gmac-labchart-24_files/
-/output-mod/bayes-regs/
+**/bayes-regs/
 additional_code.Rmd
 .RDataTmp

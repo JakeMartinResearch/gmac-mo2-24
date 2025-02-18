@@ -27,9 +27,13 @@ knit: |
 ---
 
 <!------------------------------->
-# 📕 READ ME 
+# 📕 READ ME   
 <!------------------------------->
-
+     
+     
+**🚧 UNPUBLISHED AND ONGOING 🚧 **   
+The data in this script is currently **unpublished**, and the **analysis is on going**. There may be part of this script that are currently incomplete. This script has been made publicly available for easy of sharing with collaborators and colleagues who are interested in the progression of the project and for complete transparency.   
+    
 **SUMMARY**  
 This R code is used to estimate the relationship between oxygen consumption (MO₂) and ambient oxygen partial pressure (PO₂) in the Common Galaxias (*Galaxias maculatus*). It also estimates the critical partial pressure of oxygen for aerobic metabolism (Pcrit), which is commonly understood as the threshold below which the oxygen consumption rate can no longer be sustained. The associated article is "The role of osmorespiratory compromise in hypoxia tolerance of the purportedly oxyconforming teleost *Galaxias maculatus*." If you click the `Code` button in the top right of the HTML document, you can download the `.Rmd` file.  
 
@@ -42,7 +46,7 @@ Luis L. Kuchenmüller ^[a]^
 Elizabeth C. Hoots ^[a]^  
 Maryane Gradito ^[a]^  
 Jake M. Martin ^[a,b]^  
-🚧 ***In no particular order*** 🚧
+*In no particular order*
 
 **AFFILIATIONS**  
 [a] School of Life and Environmental Sciences, Deakin University, Geelong, VIC, Australia    
@@ -140,7 +144,8 @@ pacman::p_load("ggplot2",
                "datawizard", 
                "SRS", # data manipulation 
                
-               "sessioninfo" # reproducibility
+               "sessioninfo",
+               "pander" # reproducibility
                        )
 ```
 
@@ -597,16 +602,16 @@ mod_data_wd <- paste0(wd, "./mod-data")
 
 **📤 output_fig_wd**: this is where we will put the figures
 
-```{r, echo = FALSE}
+```{r}
 output_fig_wd <- paste0(wd, "./output-fig")
-ifelse(!dir.exists("output-fig"), dir.create("output-fig"), "Folder already exists")
+if (!dir.exists("output-fig")) {dir.create("output-fig")}
 ```
 
 **📤 output_mods_wd**: this is where we will put the models
 
-```{r, echo = FALSE}
+```{r}
 output_mods_wd <- paste0(wd, "./output-mod")
-ifelse(!dir.exists("output-mod"), dir.create("output-mod"), "Folder already exists")
+if (!dir.exists("output-mod")) {dir.create("output-mod")}
 ```
 
 <!------------------------------->
@@ -728,7 +733,7 @@ metadata <- read_excel("fish-meta.xlsx", na = "NA") %>%
 ```
 
 
-### Urbina, Glover, and Forster (2012)
+## Urbina, Glover, and Forster (2012)
 
 **💿 urbina_et_al_2012**: This is the mean level data extracted from Urbina, Glover, and Forster (2012)^[2]^ Figure 1a. We used the metaDigitise package in R to extract the data ^[3]^.   
 
@@ -738,7 +743,7 @@ setwd(input_data_wd)
 urbina_et_al_2012 <- read.csv("urbina-et-al-2012-fig1a.csv")
 ```
 
-### Pcrit viusal inspection
+## Pcrit viusal inspection
 
 **💿 pcrit_check**: This data frame is a list of all fish that had higher order polynomials (2^nd^ and 3^rd^ order; see 'Incremental regression analyses' for details) and subsequently had Pcrit modelled (see 'Pcrit model' for details). In this data we have checked each Pcrit model and confirmed visual if a Pcrit is present. 
 
@@ -1813,7 +1818,7 @@ This analysis approach evaluates the relative 'fit' of each polynomial order equ
 
 ```{r}
 output_mods_bayes_wd <- paste0(output_mods_wd, "./bayes-regs")
-ifelse(!dir.exists(output_mods_bayes_wd), dir.create(output_mods_bayes_wd), "Folder already exists")
+if (!dir.exists(output_mods_bayes_wd)) {dir.create(output_mods_bayes_wd)}
 ```
 
 ### Building Bayesian regressions
@@ -2091,7 +2096,7 @@ Getting a plot for each best fit regression, and overlaying a global model for t
 
 ```{r, echo=FALSE}
 output_mods_bayes_global_wd <- paste0(output_mods_wd, "./bayes-regs-global")
-ifelse(!dir.exists(output_mods_bayes_global_wd), dir.create(output_mods_bayes_global_wd), "Folder already exists")
+if (!dir.exists(output_mods_bayes_global_wd)) {dir.create(output_mods_bayes_global_wd)}
 ```
 
 Here we are grouping fish by best fitting model and getting an average trend. I have hashed the code so you don't need to re-run the models

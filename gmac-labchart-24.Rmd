@@ -744,7 +744,6 @@ urbina_et_al_2012 <- read.csv("urbina-et-al-2012-fig1a.csv")
 ```
 
 ## Pcrit viusal inspection
-
 **💿 pcrit_check**: This data frame is a list of all fish that had higher order polynomials (2^nd^ and 3^rd^ order; see 'Incremental regression analyses' for details) and subsequently had Pcrit modelled (see 'Pcrit model' for details). In this data we have checked each Pcrit model and confirmed visual if a Pcrit is present. 
 
 ```{r}
@@ -2233,7 +2232,7 @@ fig_1
 
 ## Pcrit model
 
-For those fish that were best modelled with a 2^nd^ or 3^rd^-order polynomial (*n* = 38) we will check to see if a Pcrit is present. We are filtering the data for only those fish.   
+For those fish that were best modelled with a 2^nd^ or 3^rd^-order polynomial (*n* = 37) we will check to see if a Pcrit is present. We are filtering the data for only those fish.   
 
 ```{r}
 higher_order <- c("lm_2", "lm_3")
@@ -2299,7 +2298,7 @@ pcrit_model_df <- bind_rows(pcrit_model_df_list)
 
 ### Ploting Pcrit
 
-Here's the plots for the Pcrit estimates. This inculdes all fish with best fit regression that are 2 or 3 order (*n* = 38).   
+Here's the plots for the Pcrit estimates. This includes all fish with best fit regression that are 2 or 3 order (*n* = 37).   
 
 ```{r, echo=FALSE}
 # Create output directory if needed
@@ -2428,7 +2427,7 @@ for (id_i in ids) {
 
 🚧 ***Need to re-do visual inspections with new data*** 🚧
 
-We conducted visual inspection of all 38 fish to detrmine if Pcrits were present. We have laoded this as a data frame **💿 pcrit_check**  
+We conducted visual inspection of all 37 fish to determine if Pcrits were present. We have loaded this as a data frame **💿 pcrit_check**  
 
 For this visual inspection, we grouped fish into "no", "unclear" or "yes", based on the certainty at which we observed a Pcrit. We concluded that 12 fish had a Pcrit responses, while 6 showed some evidence of a Pcrit but not as clearly (i.e. unclear), and the remaining 20 did not show any evidence of a Pcrit response.   
 

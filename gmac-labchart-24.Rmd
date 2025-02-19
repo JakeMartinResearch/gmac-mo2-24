@@ -2482,9 +2482,9 @@ list(
 
 ```
 
-There are 10 fish that both numerically and visually were determined to have a Pcrit. Two fish were detriment visually to have a Pcrit, while they did not meet the numerical criteria. Three fish meet the numerical criteria, but did not pass the visual inspection.  
+There are 11 fish that both numerically and visually were determined to have a Pcrit. One fish with a visually confirmed Pcrit, that did not meet the numerical criteria. Ten fish meet the numerical criteria, but did not pass the visual inspection.  
 
-These are the 10 fish that meet numerical criteria and passed visual inspection.   
+These are the 11 fish that meet numerical criteria and passed visual inspection.   
 
 ```{r, fig.height = 3, fig.width= 4}
 for (id_i in shared_elements) {
@@ -2538,7 +2538,7 @@ for (id_i in shared_elements) {
 }
 ```
 
-These are the 2 fish that *did not* meet numerical criteria but passed visual inspection    
+This is the fish that *did not* meet numerical criteria but passed visual inspection    
 
 ```{r, fig.height = 3, fig.width= 4}
 for (id_i in unique_to_visual) {
@@ -2592,7 +2592,7 @@ for (id_i in unique_to_visual) {
 }
 ```
 
-These are the 3 fish that did meet numerical criteria but *did not* pass visual inspection    
+These are the 10 fish that did meet numerical criteria but *did not* pass visual inspection    
 
 ```{r, fig.height = 3, fig.width= 4}
 for (id_i in unique_to_numerical) {
@@ -2647,7 +2647,7 @@ for (id_i in unique_to_numerical) {
 ```
 
 
-Based on the 10 fish that passed both the numerical criteria and visually checks the Pcrit response.  
+Based on the 11 fish that passed both the numerical criteria and visually checks the Pcrit response.  
 
 ```{r}
 n_pcrit <- length(shared_elements)
@@ -2689,7 +2689,7 @@ slope_tidy %>%
                  min_o2 = min(DO))
 ```
 
-For the fish that did have Pcrits, proportionally more fish were from the zero salinity treatment (20% *vs* 14%), and the fish were close to the mean weight. 
+For the fish that did have Pcrits, proportionally slightly more fish were from the zero salinity treatment (20% *vs* 18%), fish were close to the mean weight (maybe slightly smaller). 
 
 ```{r}
 mean_weight_all <- slope_tidy %>% 

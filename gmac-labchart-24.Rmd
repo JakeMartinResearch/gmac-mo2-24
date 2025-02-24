@@ -73,6 +73,19 @@ I (Jake Martin) am dyslexic. I have made an effort to review the script for gram
   
 🐙 **GitHub**: [JakeMartinResearch](https://github.com/JakeMartinResearch)  
 
+
+<!------------------------------->
+# 📑 Sharing/accessing and citing
+<!------------------------------->
+
+1. **Licenses/restrictions placed on the data:** CC-BY 4.0  
+
+2. **Links to publications that cite or use the data:**     
+🚧 ***To be added*** 🚧     
+
+3. **Recommended citation for this dataset:**      
+🚧 ***To be added*** 🚧     
+
 <!------------------------------->
 # ⚙️ Knit settings 
 <!------------------------------->
@@ -96,7 +109,8 @@ tidy = TRUE
 These are the R packages required for this script. You will need to install a package called pacman to run the p_load function.   
 
 ```{r, message=FALSE, results='hide'}
-# you need to install pacman first install.packages("pacman")
+# install.packages("pacman")
+# require("pacman")
 pacman::p_load("ggplot2", 
                "ggthemes", 
                "ggfortify", 
@@ -706,6 +720,93 @@ slope_df <- bind_rows(slope_list) %>%
                 )
 ```
 
+
+**💿 slope_df_test**: We have imported the slopes extracted in LabChart during each phase of the experiment
+
+```{r}
+ setwd(input_data_wd)
+# 
+# # Get the names of all sheets in the Excel file
+sheet_names <- excel_sheets("labchart-all-dates_v2.xlsx")
+all_trials_select <- c("start_date", "order", "phase", "cycle", "date", "time")
+slope_list <- list()
+
+for (sheet in sheet_names) {
+
+  df <- read_excel("labchart-all-dates_v2.xlsx", sheet = sheet) %>% 
+  dplyr::rename_with(tolower)
+  
+a_name <- paste0("a_", tolower(sheet))
+a_df <- df %>%
+  dplyr::select(starts_with('a'), all_trials_select) %>% 
+  dplyr::rename(temp = a_temp) %>% 
+  dplyr::mutate(across(starts_with('a'), as.numeric)) %>% 
+  pivot_longer(
+    cols = starts_with('a'), # Select all columns to pivot
+    names_to = c("chamber_id", ".value"), # Separate column names into 'id' and other variables
+    names_sep = "_"
+  ) %>%
+  dplyr::mutate(respirometer_group = "a") # Add a new column with a fixed value
+
+slope_list[[a_name]]<- a_df
+
+b_name <- paste0("b_", tolower(sheet))
+b_df <- df %>% 
+  dplyr::select(starts_with('b'), all_trials_select) %>% 
+  dplyr::rename(temp = b_temp) %>% 
+  dplyr::mutate(across(starts_with('b'), as.numeric)) %>% 
+  pivot_longer(
+    cols = starts_with('b'), # Select all columns to pivot
+    names_to = c("chamber_id", ".value"), # Separate column names into 'id' and other variables
+    names_sep = "_"
+  ) %>% 
+    dplyr::mutate(respirometer_group = "b")
+
+slope_list[[b_name]] <- b_df
+
+c_name <- paste0("c_", tolower(sheet))
+c_df <- df %>% 
+  dplyr::select(starts_with('c'), all_trials_select) %>% 
+  dplyr::rename(temp = c_temp,
+                i_cycle = cycle) %>% 
+  dplyr::mutate(across(starts_with('c'), as.numeric)) %>%
+  pivot_longer(
+    cols = starts_with('c'), # Select all columns to pivot
+    names_to = c("chamber_id", ".value"), # Separate column names into 'id' and other variables
+    names_sep = "_"
+  ) %>% 
+    dplyr::mutate(respirometer_group = "c") %>% 
+  dplyr::rename(cycle = i_cycle)
+
+slope_list[[c_name]] <- c_df
+
+d_name <- paste0("d_", tolower(sheet))
+d_df <- df %>% 
+  dplyr::select(starts_with('d'), all_trials_select) %>% 
+  dplyr::rename(temp = d_temp,
+                i_date = date) %>% 
+  dplyr::mutate(across(starts_with('d'), as.numeric)) %>%
+  pivot_longer(
+    cols = starts_with('d'), # Select all columns to pivot
+    names_to = c("chamber_id", ".value"), # Separate column names into 'id' and other variables
+    names_sep = "_"
+  ) %>% 
+    dplyr::mutate(respirometer_group = "d") %>% 
+  dplyr::rename(date = i_date)
+
+slope_list[[d_name]] <- d_df
+}
+
+
+slope_df_test <- bind_rows(slope_list) %>% 
+  dplyr::mutate(resp_cat_date = paste0(respirometer_group, "_", start_date),
+                chamber_n = str_extract(chamber_id, "\\d+"),
+                id_prox = paste0(resp_cat_date, "_", chamber_n),
+                time_hms = as_hms(time*3600),
+                date_chr = format(date, "%d/%m/%Y")
+                )
+```
+
 ## Fish metadata
 
 **💿 metadata**: This is the meta data for each chamber   
@@ -764,6 +865,79 @@ slope_df_2 <- slope_df %>%
   dplyr::mutate(light_dark = if_else(time_hms >= as.hms("07:00:00") & time_hms < as.hms("19:00:00"), "light", "dark")) %>% 
   dplyr::arrange(id)
 ```
+
+```{r}
+slope_df_test_2 <- slope_df_test %>% 
+  dplyr::select(-start_date, -respirometer_group) %>% 
+  left_join(metadata, by = "id_prox") %>% 
+  dplyr::mutate(light_dark = if_else(time_hms >= as.hms("07:00:00") & time_hms < as.hms("19:00:00"), "light", "dark")) %>% 
+  dplyr::arrange(id)
+```
+
+```{r}
+v3_mo2corr <- slope_df_2 %>% 
+  dplyr::arrange(id, order) %>% 
+  dplyr::select(id, order, o2, phase, mo2corr) %>% 
+  dplyr::rename(mo2corr_v3 = mo2corr)
+
+v2_mo2corr <- slope_df_test_2 %>% 
+  dplyr::arrange(id, order) %>% 
+  dplyr::select(id, order, o2, phase,  mo2corr) %>% 
+  dplyr::rename(mo2corr_v2 = mo2corr)
+
+v2_3_comp <- full_join(v3_mo2corr, v2_mo2corr, by = c("id", "order", "o2", "phase")) %>% 
+  dplyr::mutate(v3_minus_v2 = mo2corr_v3-mo2corr_v2)
+```
+
+```{r}
+v2_3_comp %>% 
+  dplyr::filter(mo2corr_v2 < 0.01) %>% 
+  ggplot(aes(x = mo2corr_v3, y = mo2corr_v2)) +
+  facet_wrap(~phase, scales = "free") +
+  geom_point()
+```
+
+
+```{r}
+v2_3_comp %>% 
+  ggplot(aes(x = 1, y = v3_minus_v2)) +
+  facet_wrap(~phase) +
+  geom_jitter() +
+  geom_hline(yintercept = 0, colour = "red")
+```
+
+```{r}
+v3_mo2corr_l <- slope_df_2 %>% 
+  dplyr::arrange(id, order) %>% 
+  dplyr::select(id, order, o2, phase, mo2corr) %>% 
+  dplyr::mutate(version = "3")
+
+v2_mo2corr_l <- slope_df_test_2 %>% 
+  dplyr::arrange(id, order) %>% 
+  dplyr::select(id, order, o2, phase,  mo2corr) %>% 
+  dplyr::mutate(version = "2")
+
+v2_3_comp_l <- rbind(v3_mo2corr_l, v2_mo2corr_l) 
+
+v2_3_comp_l %>% 
+  ggplot(aes(x = o2, y = mo2corr, colour = version)) +
+  geom_point(alpha = 0.2)
+```
+
+
+```{r}
+v2_3_comp_l %>% 
+  dplyr::filter(id == "b_0_25nov_4") %>% 
+  ggplot(aes(x = o2, y = mo2corr, colour = version)) +
+  geom_point(alpha = 0.3) + 
+  theme_clean() +
+    labs(
+      subtitle = "b_0_25nov_4",
+      x = "o2",
+      y = "mo2corr before transformation"
+    )
+```
+
 
 <!------------------------------->
 # 🧼 Data tidy

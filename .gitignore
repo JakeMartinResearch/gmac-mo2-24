@@ -10,3 +10,7 @@ gmac-labchart-24.html
 /output-mod/bayes-regs/
 additional_code.Rmd
 .RDataTmp
+/ignore/
+/output-mod/labchart-all-dates.xlsx
+/output-mod/labchart-all-dates_v2.xlsx
+/output-mod/labchart-all-dates_v3.xlsx

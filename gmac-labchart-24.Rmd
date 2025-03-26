@@ -30,7 +30,6 @@ knit: |
 # 📕 READ ME   
 <!------------------------------->
 
-       
         
 **🚧 UNPUBLISHED AND ONGOING 🚧**  
 The data in this script are currently **unpublished**, and the **analysis is ongoing**. Some sections may be incomplete. This script has been made publicly available to facilitate sharing with collaborators and colleagues who are interested in the progress of the project and to ensure transparency.  
@@ -1486,7 +1485,14 @@ p <- time_bin_df %>%
            label = bquote(atop("Current data (blue), " * italic(n) * " = " * .(n),
                         "Urbina data (red), " * italic(n) * " = 67")),  
          hjust = 0, vjust = 1, size = 4) +
-  theme_clean() +
+  theme(
+    legend.position = "none",
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(colour = "black", fill = NA, linewidth = 1),
+    panel.background = element_rect(fill = "white", colour = NA),
+    plot.background = element_rect(fill = "white", colour = NA)
+  ) +
   labs(
     subtitle = "",
     x = "PO2 (kPa)",
@@ -1499,6 +1505,14 @@ p
 ```
 
 **Figure S4:** Mean and standard error of metabolic rate (MO<sub>2</sub> μmol O<sub>2</sub> g^-1^ h^-1^) and oxygen concentration (PO<sub>2</sub> kPa) using 12 evenly spaced bins over the O<sub>2</sub> range of observed data (blue dots). Compared against the mean and standard error reported in Urbina (2012)^[1]^ (red dots). The grey dots are the raw observed data form the present study. 
+
+```{r}
+ggsave(filename = paste0(output_fig_wd, "./ms_figures./figure-3.pdf"), 
+       plot = p,
+       width = 210,
+       height = 297/2,  # Specify the height of the plot
+       units = "mm")
+```
 
 ## Routine MO₂
 
@@ -2617,7 +2631,7 @@ This code saves the figure above as PDF.
 ```{r}
 ggsave(filename = paste0(output_fig_wd, "./ms_figures./figure-2.pdf"), 
        plot = fig_2,
-       width = 210/2,
+       width = 210,
        height = 297/2,  # Specify the height of the plot
        units = "mm")
 ```

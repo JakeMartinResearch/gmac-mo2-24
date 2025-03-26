@@ -616,7 +616,7 @@ if (!dir.exists("output-mod")) {dir.create("output-mod")}
 ```{r}
  setwd(input_data_wd)
 
-data_file <- "labchart-all-dates_v3.xlsx"
+data_file <- "labchart-slope-data.xlsx"
 
 # 
 # # Get the names of all sheets in the Excel file
@@ -692,184 +692,6 @@ slope_list[[d_name]] <- d_df
 
 
 slope_df <- bind_rows(slope_list) %>% 
-  dplyr::mutate(resp_cat_date = paste0(respirometer_group, "_", start_date),
-                chamber_n = str_extract(chamber_id, "\\d+"),
-                id_prox = paste0(resp_cat_date, "_", chamber_n),
-                time_hms = as_hms(time*3600),
-                date_chr = format(date, "%d/%m/%Y")
-                )
-```
-
-
-**💿 slope_v1**: We have imported the slopes extracted in LabChart during each phase of the experiment   
-
-```{r}
- setwd(input_data_wd)
-data_file <- "labchart-all-dates.xlsx"
-
-# 
-# # Get the names of all sheets in the Excel file
-sheet_names <- excel_sheets(data_file)
-all_trials_select <- c("start_date", "order", "phase", "cycle", "date", "time")
-slope_list <- list()
-
-for (sheet in sheet_names) {
-
-  df <- read_excel(data_file, sheet = sheet) %>% 
-  dplyr::rename_with(tolower)
-  
-a_name <- paste0("a_", tolower(sheet))
-a_df <- df %>%
-  dplyr::select(starts_with('a'), all_trials_select) %>% 
-  dplyr::rename(temp = a_temp) %>% 
-  dplyr::mutate(across(starts_with('a'), as.numeric)) %>% 
-  pivot_longer(
-    cols = starts_with('a'), # Select all columns to pivot
-    names_to = c("chamber_id", ".value"), # Separate column names into 'id' and other variables
-    names_sep = "_"
-  ) %>%
-  dplyr::mutate(respirometer_group = "a") # Add a new column with a fixed value
-
-slope_list[[a_name]]<- a_df
-
-b_name <- paste0("b_", tolower(sheet))
-b_df <- df %>% 
-  dplyr::select(starts_with('b'), all_trials_select) %>% 
-  dplyr::rename(temp = b_temp) %>% 
-  dplyr::mutate(across(starts_with('b'), as.numeric)) %>% 
-  pivot_longer(
-    cols = starts_with('b'), # Select all columns to pivot
-    names_to = c("chamber_id", ".value"), # Separate column names into 'id' and other variables
-    names_sep = "_"
-  ) %>% 
-    dplyr::mutate(respirometer_group = "b")
-
-slope_list[[b_name]] <- b_df
-
-c_name <- paste0("c_", tolower(sheet))
-c_df <- df %>% 
-  dplyr::select(starts_with('c'), all_trials_select) %>% 
-  dplyr::rename(temp = c_temp,
-                i_cycle = cycle) %>% 
-  dplyr::mutate(across(starts_with('c'), as.numeric)) %>%
-  pivot_longer(
-    cols = starts_with('c'), # Select all columns to pivot
-    names_to = c("chamber_id", ".value"), # Separate column names into 'id' and other variables
-    names_sep = "_"
-  ) %>% 
-    dplyr::mutate(respirometer_group = "c") %>% 
-  dplyr::rename(cycle = i_cycle)
-
-slope_list[[c_name]] <- c_df
-
-d_name <- paste0("d_", tolower(sheet))
-d_df <- df %>% 
-  dplyr::select(starts_with('d'), all_trials_select) %>% 
-  dplyr::rename(temp = d_temp,
-                i_date = date) %>% 
-  dplyr::mutate(across(starts_with('d'), as.numeric)) %>%
-  pivot_longer(
-    cols = starts_with('d'), # Select all columns to pivot
-    names_to = c("chamber_id", ".value"), # Separate column names into 'id' and other variables
-    names_sep = "_"
-  ) %>% 
-    dplyr::mutate(respirometer_group = "d") %>% 
-  dplyr::rename(date = i_date)
-
-slope_list[[d_name]] <- d_df
-}
-
-
-slope_v1 <- bind_rows(slope_list) %>% 
-  dplyr::mutate(resp_cat_date = paste0(respirometer_group, "_", start_date),
-                chamber_n = str_extract(chamber_id, "\\d+"),
-                id_prox = paste0(resp_cat_date, "_", chamber_n),
-                time_hms = as_hms(time*3600),
-                date_chr = format(date, "%d/%m/%Y")
-                )
-```
-
-
-**💿 slope_v2**: We have imported the slopes extracted in LabChart during each phase of the experiment    
-
-```{r}
- setwd(input_data_wd)
-data_file <- "labchart-all-dates_v2.xlsx"
-
-# 
-# # Get the names of all sheets in the Excel file
-sheet_names <- excel_sheets(data_file)
-all_trials_select <- c("start_date", "order", "phase", "cycle", "date", "time")
-slope_list <- list()
-
-for (sheet in sheet_names) {
-
-  df <- read_excel(data_file, sheet = sheet) %>% 
-  dplyr::rename_with(tolower)
-  
-a_name <- paste0("a_", tolower(sheet))
-a_df <- df %>%
-  dplyr::select(starts_with('a'), all_trials_select) %>% 
-  dplyr::rename(temp = a_temp) %>% 
-  dplyr::mutate(across(starts_with('a'), as.numeric)) %>% 
-  pivot_longer(
-    cols = starts_with('a'), # Select all columns to pivot
-    names_to = c("chamber_id", ".value"), # Separate column names into 'id' and other variables
-    names_sep = "_"
-  ) %>%
-  dplyr::mutate(respirometer_group = "a") # Add a new column with a fixed value
-
-slope_list[[a_name]]<- a_df
-
-b_name <- paste0("b_", tolower(sheet))
-b_df <- df %>% 
-  dplyr::select(starts_with('b'), all_trials_select) %>% 
-  dplyr::rename(temp = b_temp) %>% 
-  dplyr::mutate(across(starts_with('b'), as.numeric)) %>% 
-  pivot_longer(
-    cols = starts_with('b'), # Select all columns to pivot
-    names_to = c("chamber_id", ".value"), # Separate column names into 'id' and other variables
-    names_sep = "_"
-  ) %>% 
-    dplyr::mutate(respirometer_group = "b")
-
-slope_list[[b_name]] <- b_df
-
-c_name <- paste0("c_", tolower(sheet))
-c_df <- df %>% 
-  dplyr::select(starts_with('c'), all_trials_select) %>% 
-  dplyr::rename(temp = c_temp,
-                i_cycle = cycle) %>% 
-  dplyr::mutate(across(starts_with('c'), as.numeric)) %>%
-  pivot_longer(
-    cols = starts_with('c'), # Select all columns to pivot
-    names_to = c("chamber_id", ".value"), # Separate column names into 'id' and other variables
-    names_sep = "_"
-  ) %>% 
-    dplyr::mutate(respirometer_group = "c") %>% 
-  dplyr::rename(cycle = i_cycle)
-
-slope_list[[c_name]] <- c_df
-
-d_name <- paste0("d_", tolower(sheet))
-d_df <- df %>% 
-  dplyr::select(starts_with('d'), all_trials_select) %>% 
-  dplyr::rename(temp = d_temp,
-                i_date = date) %>% 
-  dplyr::mutate(across(starts_with('d'), as.numeric)) %>%
-  pivot_longer(
-    cols = starts_with('d'), # Select all columns to pivot
-    names_to = c("chamber_id", ".value"), # Separate column names into 'id' and other variables
-    names_sep = "_"
-  ) %>% 
-    dplyr::mutate(respirometer_group = "d") %>% 
-  dplyr::rename(date = i_date)
-
-slope_list[[d_name]] <- d_df
-}
-
-
-slope_v2 <- bind_rows(slope_list) %>% 
   dplyr::mutate(resp_cat_date = paste0(respirometer_group, "_", start_date),
                 chamber_n = str_extract(chamber_id, "\\d+"),
                 id_prox = paste0(resp_cat_date, "_", chamber_n),
@@ -1510,11 +1332,11 @@ p
 **Figure S4:** Mean and standard error of metabolic rate (MO<sub>2</sub> μmol O<sub>2</sub> g^-1^ h^-1^) and oxygen concentration (PO<sub>2</sub> kPa) using 12 evenly spaced bins over the O<sub>2</sub> range of observed data (blue dots). Compared against the mean and standard error reported in Urbina (2012)^[1]^ (red dots). The grey dots are the raw observed data form the present study. 
 
 ```{r}
-ggsave(filename = paste0(output_fig_wd, "./ms_figures./figure-3.pdf"), 
-       plot = p,
-       width = 210,
-       height = 297/2,  # Specify the height of the plot
-       units = "mm")
+# ggsave(filename = paste0(output_fig_wd, "./ms_figures./figure-3.pdf"), 
+#        plot = p,
+#        width = 210,
+#        height = 297/2,  # Specify the height of the plot
+#        units = "mm")
 ```
 
 ## Routine MO₂
@@ -1948,11 +1770,11 @@ fig_1a
 This code saves the figure above as PDF.  
 
 ```{r}
-ggsave(filename = paste0(output_fig_wd, "./ms_figures./figure-1a.pdf"), 
-       plot = fig_1a,
-       width = 210/2,
-       height = 297/2,  # Specify the height of the plot
-       units = "mm")
+# ggsave(filename = paste0(output_fig_wd, "./ms_figures./figure-1a.pdf"), 
+#        plot = fig_1a,
+#        width = 210/2,
+#        height = 297/2,  # Specify the height of the plot
+#        units = "mm")
 ```
 
 
@@ -2193,11 +2015,11 @@ fig_1b
 
 
 ```{r}
-ggsave(filename = paste0(output_fig_wd, "./ms_figures./figure-1b.pdf"), 
-       plot = fig_1b,
-       width = 210/2,
-       height = 297/2,  # Specify the height of the plot
-       units = "mm")
+# ggsave(filename = paste0(output_fig_wd, "./ms_figures./figure-1b.pdf"), 
+#        plot = fig_1b,
+#        width = 210/2,
+#        height = 297/2,  # Specify the height of the plot
+#        units = "mm")
 ```
 
 ## Incremental regression analyses
@@ -2632,11 +2454,11 @@ fig_2
 This code saves the figure above as PDF.  
 
 ```{r}
-ggsave(filename = paste0(output_fig_wd, "./ms_figures./figure-2.pdf"), 
-       plot = fig_2,
-       width = 210,
-       height = 297/2,  # Specify the height of the plot
-       units = "mm")
+# ggsave(filename = paste0(output_fig_wd, "./ms_figures./figure-2.pdf"), 
+#        plot = fig_2,
+#        width = 210,
+#        height = 297/2,  # Specify the height of the plot
+#        units = "mm")
 ```
 
 ## Pcrit model

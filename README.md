@@ -1,128 +1,141 @@
-# 🐟 gmac-mo2-24: Oxygen Consumption and Hypoxia Tolerance in *Galaxias maculatus*
+---
+title: "gmac-mo2-24: Oxygen Consumption and Hypoxia Tolerance in Galaxias maculatus"
+---
 
 This repository contains R code and data used to analyse metabolic responses to salinity and hypoxia in the Common Galaxias (*Galaxias maculatus*), with a focus on estimating critical oxygen thresholds (Pcrit) and understanding patterns of oxyregulation.
+
+[![License: CC BY 4.0](https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
+
+> This work is licensed under a [Creative Commons Attribution 4.0 International License](https://creativecommons.org/licenses/by/4.0/). You are free to reuse, redistribute, and adapt the material, provided appropriate credit is given.
 
 ---
 
 ## 📄 Project Summary
 
-- **Title**: The role of osmorespiratory compromise in hypoxia tolerance of the purportedly oxyconforming teleost *Galaxias maculatus*
+- **Title**: *The role of osmorespiratory compromise in hypoxia tolerance of the purportedly oxyconforming teleost Galaxias maculatus*
+- **Authors**: Timothy D. Clark^1^, Luis L. Kuchenmüller^1^, Elizabeth C. Hoots^1^, Maryane Gradito^1^, and Jake M. Martin^1,2^  <br>
+- **Institutions**:  
+  ^1^ School of Life and Environmental Sciences, Deakin University, Geelong, VIC, Australia  
+  ^2^ School of Biological Sciences, Monash University, Clayton, VIC, Australia  
+- **Status**: 🚧 Unpublished and ongoing 🚧  
 
-- **Authors**: Timothy D. Clark ^[a]^, Luis L. Kuchenmüller ^[a]^, Elizabeth C. Hoots ^[a]^, Maryane Gradito ^[a]^, and Jake M. Martin ^[a,b]^ 
+This project tests:  
+1. Whether *G. maculatus* exhibits oxyregulation  
+2. Whether isosmotic conditions reduce resting oxygen uptake and improve hypoxia tolerance  
 
-- **Institutions**: [a] School of Life and Environmental Sciences, Deakin University, Geelong, VIC, Australia, and [b] School of Biological Sciences, Monash University, Clayton, VIC, Australia 
+The study compares SMR, RMR, and estimated Pcrit values across salinity treatments (0 ppt vs 9 ppt), using data collected from intermittent-flow respirometry and analysed in R (v4.2.3).
 
-- **Status**: 🚧 Unpublished and ongoing 🚧 
-
-With *G. maculatus* as a model, we test (1) whether this species exhibits oxyregulation, and (2), whether isosmotic conditions can ease the osmorespiratory compromise to reduce resting oxygen uptake rates and improve hypoxia tolerance. This project compares the standard metabolic rate (SMR), routine metabolic rate (RMR), and estimates Pcrit values across fish exposed to different salinity treatments, freshwater (0  ppt) or isosmotic conditions (9  ppt). Data were collected using intermittent-flow respirometry and analysed in R (v4.2.3).
-
-An HTML version of the R script is available here:  
-📍 [https://jakemartinresearch.github.io/gmac-mo2-24/](https://jakemartinresearch.github.io/gmac-mo2-24/)
+📍 [Browse the HTML output](https://jakemartinresearch.github.io/gmac-mo2-24/)
 
 ---
 
 ## 📁 Repository Structure
 
 ```
-📆 gmac-mo2-24/
-🗄️ input-data/           # Raw and cleaned input data
-🗄️ mod-data/             # Intermediate data and summaries for modelling
-🗄️ output-fig/           # Final figures used in the manuscript
-🗄️ output-mod/           # Model outputs (e.g. .rds files)
-🗄️ gmac-labchart-24.Rmd  # Main analysis and figure generation script
-🗄️ index.html            # Rendered HTML results file
-🗄️ EXP-2024-gmac-labchart.Rproj  # RStudio project file
+📁 gmac-mo2-24/
+├── 📂 input-data/           Raw and cleaned input data
+├── 📂 mod-data/             Intermediate summaries for modelling
+├── 📂 output-fig/           Final figures used in the manuscript
+├── 📂 output-mod/           Model outputs (.rds files)
+├── 📄 gmac-labchart-24.Rmd  Main analysis and figure script
+├── 📄 index.html            Rendered HTML results
+└── 📄 EXP-2024-gmac-labchart.Rproj  RStudio project file
 ```
-
 ---
 
 ## 📦 R Dependencies
 
-This project uses the following key packages:
+This project uses the following key R packages:
 
-Data Visualisation
--`ggthemes` 
--`bayesplot`
--`gt`
--`gtsummary`
--`plotly` 
--`qqplotr`
-  
-Tidy Data and Wrangling
--tidyverse
--janitor
--readxl
--broom.mixed
--data.table
--hms
--devtools
--mclust
-  
-Modelling and Statistical Analysis
--brms 
--rstan 
--marginaleffects 
--performance 
--emmeans
--tidybayes 
--respirometry 
--future   
+**🔹 Data Visualisation**  
+- `ggthemes`  
+- `bayesplot`  
+- `gt`  
+- `gtsummary`  
+- `plotly`  
+- `qqplotr`  
 
-In the R markdown docment you will install/load these using `p_load` from in `pacman`
+**🔹 Tidy Data & Wrangling**  
+- `tidyverse`  
+- `janitor`  
+- `readxl`  
+- `broom.mixed`  
+- `data.table`  
+- `hms`  
+- `devtools`  
+- `mclust`  
+
+**🔹 Modelling & Statistical Analysis**  
+- `brms`  
+- `rstan`  
+- `marginaleffects`  
+- `performance`  
+- `emmeans`  
+- `tidybayes`  
+- `respirometry`  
+- `future`  
+
+These are installed and loaded in the `.Rmd` using `pacman::p_load(...)`.
 
 ---
 
 ## 🔍 Key Methods
+  
+- **SMR estimation**: Using a custom version of the `calcSMR` method (Chabot et al., 2016)
 
-- **SMR estimation**: Custom implementation of Chabot et al.'s `calcSMR` method
+- **Incremental regression**: Polynomial Bayesian models to describe ṀO₂–DO relationships (Urbina et al., 2012) 
 
-- **Incremental regression**: Bayesian polynomial regression to model MO₂–DO relationships (Urbina et al., 2012)
+- **Pcrit detection**: Rule-based detection method with visual validation (Claireaux & Chabot, 2016)  
 
-- **Pcrit detection**: Rule-based method following Claireaux & Chabot (2016), with visual validation
-
-- **Model comparison**: Performed using leave-one-out cross-validation (LOO-CV)
+- **Model comparison**: Leave-one-out cross-validation (LOO-CV) for evaluating best-fit models  
 
 ---
 
 ## 📊 Outputs
 
-- Figures and summary statistics are rendered into a browsable HTML site:  
+- HTML-rendered results and figures are available at:  
   📍 [https://jakemartinresearch.github.io/gmac-mo2-24/](https://jakemartinresearch.github.io/gmac-mo2-24/)
   
-- Each model’s diagnostic and output values are saved in `.rds` files for reproducibility.
+- Bayesian model outputs are saved as `.rds` files and stored in the `/output-mod/` folder.
 
 ---
 
 ## 📥 Download or Pull This Repository into R
 
-To work with this project in R, you can clone or download it directly from GitHub using RStudio.  
+To work with this project in RStudio:  
 
-Open RStudio: Click File → New Project → Version Control → Git.
+1. Open RStudio → **File** → **New Project** → **Version Control** → **Git**  
 
-In the Repository URL box, paste:
+2. Paste this URL in the **Repository URL** field:  
 
-```
-https://github.com/JakeMartinResearch/gmac-mo2-24.git
-```
+<pre>https://github.com/JakeMartinResearch/gmac-mo2-24.git</pre>
 
-Choose a folder on your computer to save the project.   
+3. Choose a folder on your computer  
 
-Click Create Project — RStudio will pull the project into a new folder and open it automatically.   
+4. Click **Create Project**  
 
-📺 Tutorial: How to clone a GitHub repo into RStudio (YouTube, 2 min)  
+RStudio will now pull the GitHub repo into a new local folder.  
+
+📺 [Watch this 2-min tutorial on YouTube](https://www.youtube.com/watch?v=HzTqHk4XjQQ)
 
 ---
 
 ## 📘 Citation
-
-🚧 To be added 🚧
+  
+🚧 *To be added* 🚧
 
 ---
 
 ## 📩 Contact
 
-Jake M. Martin  
-Email: [jake.martin1@monash.edu](mailto:jake.martin1@monash.edu)  
-ORCID: [https://orcid.org/0000-0002-XXXX-XXXX](https://orcid.org/)
+**Jake M. Martin**
+  
+📧 **Email:** [jake.martin@deakin.edu.au](mailto:jake.martin@deakin.edu.au)  
+  
+📧 **Alt Email:** [jake.martin.research@gmail.com](mailto:jake.martin.research@gmail.com) 
+  
+🌐 **Web:** [jakemartin.org](https://jakemartin.org/)  
+  
+🧪 **ORCID**: [0000-0001-9544-9094](https://orcid.org/0000-0001-9544-9094)  
 
 ---

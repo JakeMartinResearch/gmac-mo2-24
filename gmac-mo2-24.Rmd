@@ -33,7 +33,7 @@ knit: |
 <!------------------------------->
 
         
-**🚧 UNPUBLISHED AND ONGOING 🚧**  
+**🚧 UNPUBLISHED AND ONGOING example 🚧**  
 The data in this script are currently **unpublished**, and the **analysis is ongoing**. Some sections may be incomplete. This script has been made publicly available to facilitate sharing with collaborators and colleagues who are interested in the progress of the project and to ensure transparency.  
 
 **SUMMARY**  
@@ -60,8 +60,6 @@ Jake M. Martin ^[a,b]^
 
 **DISCLAIMER**  
 I (Jake Martin) am dyslexic. I have made an effort to review the script for grammatical errors, but some will likely remain. I apologise. Please feel free to reach out using the contact details below if anything is unclear.  
-
----------------------
 
 <!------------------------------->
 # 📧 Contact

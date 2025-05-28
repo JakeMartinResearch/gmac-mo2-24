@@ -1791,10 +1791,6 @@ random_effect %>%
   gt()
 ```
 
-
-
-## MENTION R vaules with text from MS
-
 ## SMR
 
 ### Formating and scaling data

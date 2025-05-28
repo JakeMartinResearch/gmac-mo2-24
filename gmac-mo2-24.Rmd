@@ -19,13 +19,13 @@ output:
     toc_depth: 4
 knit: |
   (function(input, ...) {
-    rmarkdown::render(
+    output_path <- rmarkdown::render(
       input,
-      output_file = paste0(
-       'index_0.html'
-      ),
+      output_file = 'index.html',
       envir = globalenv()
     )
+    file.copy(output_path, "supplementary-file-1.html", overwrite = TRUE)
+    output_path
   })
 ---
 
@@ -1197,32 +1197,8 @@ Now let's plot them in the same graph for each fish:
 <span style="color:#6E7889">MO₂ calculations after correcting for background respiration</span> are shown in grey, and 
 <span style="color:#53af8b">MO₂ calculations after correcting for background respiration and oxygen diffusion dynamics</span> are shown in green.
 
-```{r, fig.height = 4, fig.width= 5}
-fish_ids <- slope_corr_comp %>% 
-  dplyr::distinct(id) %>% 
-  dplyr::pull(id)
 
-for (id_i in fish_ids) {
-
-plot_i <- slope_corr_comp %>% 
-  dplyr::filter(id == id_i) %>% 
-  ggplot(aes(x = DO, y = value, colour = MO2_type)) +
-  geom_point(alpha = 0.5) +
-  theme_clean() +
-  labs(
-    subtitle = id_i,
-    x = "Dissolved oxygen percentage (DO)",
-    y = "MO2 (O2 mg/g/h)"
-  ) +
-  scale_colour_manual(values = c("#f692B4", "#6E7889", "#53af8b")) +
-  theme(legend.position = "none")
-
-print(plot_i)
-}
-```
-
-
-```{r, fig.height = 4, fig.width= 10}
+```{r, fig.height = 8, fig.width= 10}
 # Define your custom colour scheme
 plot_colours <- c("#f692B4", "#6E7889", "#53af8b")
 
@@ -1252,15 +1228,15 @@ for (id_i in fish_ids) {
   plot_list[[id_i]] <- plot_i
 }
 
-# Combine plots in pages of 6 (2 columns x 3 rows)
-plots_per_page <- 6
+# Combine plots in pages of 9 (3 columns x 3 rows)
+plots_per_page <- 9
 n_pages <- ceiling(length(plot_list) / plots_per_page)
 
 # Display each page
 for (i in seq_len(n_pages)) {
   start <- (i - 1) * plots_per_page + 1
   end <- min(i * plots_per_page, length(plot_list))
-  page_plots <- patchwork::wrap_plots(plot_list[start:end], ncol = 2)
+  page_plots <- patchwork::wrap_plots(plot_list[start:end], ncol = 3)
   print(page_plots)
 }
 ```
@@ -2990,12 +2966,6 @@ par(mfrow = c(1, 2), mar = c(4, 4, 4, 2))
 
 for (id_i in shared_elements) {
   
-  comment <- pcrit_model_meta %>% 
-    dplyr::filter(id == id_i) %>% 
-    dplyr::slice(1) %>% 
-    dplyr::mutate(comment = if_else(is.na(comments), "", paste0("#", comments))) %>% 
-    pull(comment)
-  
   r2 <- pcrit_model_meta %>% 
     dplyr::filter(id == id_i) %>% 
     dplyr::mutate(pcrit_r2 = round(pcrit_r2, 3)) %>% 
@@ -3026,7 +2996,7 @@ for (id_i in shared_elements) {
   
   # Add a title
   mtext(
-    text = paste0(id_i, " ", comment),
+    text = paste0(id_i),
     side = 3, line = 2, adj = 0,
     col = "blue", font = 2, cex = 1.2
   )

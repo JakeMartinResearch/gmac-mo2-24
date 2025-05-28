@@ -1,8 +1,4 @@
----
-title: "gmac-mo2-24: Oxygen Consumption and Hypoxia Tolerance in Galaxias maculatus"
----
-
-This repository contains R code and data used to analyse metabolic responses to salinity and hypoxia in the Common Galaxias (*Galaxias maculatus*), with a focus on estimating critical oxygen thresholds (Pcrit) and understanding patterns of oxyregulation.
+# The role of osmorespiratory compromise in hypoxia tolerance of the purportedly oxyconforming teleost *Galaxias maculatus* (gmac-mo2-24)  
 
 [![License: CC BY 4.0](https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
 
@@ -12,18 +8,18 @@ This repository contains R code and data used to analyse metabolic responses to 
 
 ## 📄 Project Summary
 
--   **Title**: *The role of osmorespiratory compromise in hypoxia tolerance of the purportedly oxyconforming teleost Galaxias maculatus*
+-   **Title**: The role of osmorespiratory compromise in hypoxia tolerance of the purportedly oxyconforming teleost *Galaxias maculatus*
 -   **Authors**: Timothy D. Clark^1^, Luis L. Kuchenmüller^1^, Elizabeth C. Hoots^1^, Maryane Gradito^1^, and Jake M. Martin^1,2^ <br>
 -   **Institutions**:\
     ^1^ School of Life and Environmental Sciences, Deakin University, Geelong, VIC, Australia\
-    ^2^ School of Biological Sciences, Monash University, Clayton, VIC, Australia\
+    ^2^ Department of Wildlife, Fish and Environmental Studies, Swedish University of Agricultural Sciences, Umeå, Sweden\
 -   **Status**: 🚧 Unpublished and ongoing 🚧
 
 This project tests:\
 1. Whether *G. maculatus* exhibits oxyregulation\
 2. Whether isosmotic conditions reduce resting oxygen uptake and improve hypoxia tolerance
 
-The study compares SMR, RMR, and estimated Pcrit values across salinity treatments (0 ppt vs 9 ppt), using data collected from intermittent-flow respirometry and analysed in R (v4.2.3).
+The study compares SMR, RMR, and estimated O2crit values across salinity treatments (0 ppt vs 9 ppt), using data collected from intermittent-flow respirometry and analysed in R (v4.2.3).
 
 📍 [Browse the HTML output](https://jakemartinresearch.github.io/gmac-mo2-24/)
 
@@ -86,9 +82,9 @@ These are installed and loaded in the `.Rmd` using `pacman::p_load(...)`.
 
 -   **Incremental regression**: Polynomial Bayesian models to describe ṀO₂--DO relationships (Urbina et al., 2012)
 
--   **Pcrit detection**: Rule-based detection method with visual validation (Claireaux & Chabot, 2016)
+-   **Model comparison**: Leave-one-out cross-validation (LOO-CV) for evaluating best-fit regressions
 
--   **Model comparison**: Leave-one-out cross-validation (LOO-CV) for evaluating best-fit models
+-   **O₂crit detection**: Rule-based detection method (Claireaux & Chabot, 2016) paried with visual validation
 
 ------------------------------------------------------------------------
 
@@ -98,6 +94,8 @@ These are installed and loaded in the `.Rmd` using `pacman::p_load(...)`.
     📍 <https://jakemartinresearch.github.io/gmac-mo2-24/>
 
 -   Bayesian model outputs are saved as `.rds` files and stored in the `/output-mod/` folder.
+
+-   For plots presented per individual fish, output figures are saved as `.PDF` in  `/output-fig/` folder.
 
 ------------------------------------------------------------------------
 
@@ -122,9 +120,26 @@ RStudio will now pull the GitHub repo into a new local folder.
 
 ------------------------------------------------------------------------
 
-## 📘 Citation
+## 📥 Download from OSF
 
-🚧 *To be added* 🚧
+All data and code is also available on the Open Science Framework (OSF)
+
+🌐 [Click here for the page](https://www.youtube.com/watch?v=HzTqHk4XjQQ)
+
+THis is the DOI **10.17605/OSF.IO/GFXCA** 
+
+------------------------------------------------------------------------
+
+## 📘 Sharing/accessing and citing
+
+1.  **Licenses/restrictions placed on the data:** CC-BY 4.0
+
+2.  **Link to the associated publication:**\
+    🚧 ***To be added*** 🚧
+
+3.  **Recommended citation for this data:**\
+
+Timothy D. Clark, Maryane Gradito, Elizabeth Hoots, Luis L. Kuchenmüller, Jake M. Martin (2025). The role of osmorespiratory compromise in hypoxia tolerance of the purportedly oxyconforming teleost *Galaxias maculatus*. OSF DOI:10.17605/OSF.IO/GFXCA (Last Updated: 2025-05-28 12:28 PM)
 
 ------------------------------------------------------------------------
 

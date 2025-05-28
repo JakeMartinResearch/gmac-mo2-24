@@ -43,22 +43,21 @@ knit: |
 The data in this script are currently **unpublished**, and the **analysis is ongoing**. Some sections may be incomplete. This script has been made publicly available to facilitate sharing with collaborators and colleagues who are interested in the progress of the project and to ensure transparency.
 
 **SUMMARY**
-This R code estimates the relationship between oxygen consumption (MO₂) and ambient oxygen partial pressure (PO₂) in the Common Galaxias (*Galaxias maculatus*). It also estimates the critical partial pressure of oxygen for aerobic metabolism (Pcrit), commonly defined as the threshold below which the oxygen consumption rate can no longer be sustained. The associated article is titled *"The role of osmorespiratory compromise in hypoxia tolerance of the purportedly oxyconforming teleost Galaxias maculatus."* If you are reading the HTML version of this script, click the `Code` button in the top right to download the `.Rmd` file.
+This R code estimates the relationship between oxygen consumption (MO₂) and dissolved oxygen saturation (DO) in the Common Galaxias (*Galaxias maculatus*). It also estimates the critical oxygen saturation value for aerobic metabolism O<sub>2crit</sub>, commonly defined as the threshold below which the oxygen consumption rate can no longer be sustained. The associated article is titled *"The role of osmorespiratory compromise in hypoxia tolerance of the purportedly oxyconforming teleost Galaxias maculatus."* If you are reading the HTML version of this script, click the `Code` button in the top right to download the `.Rmd` file.
 
 **AIM**
-The article aims to test whether *Galaxias maculatus* can maintain oxygen consumption (MO₂) as ambient PO₂ declines and, if so, at what level it reaches the critical partial pressure of oxygen for aerobic metabolism (Pcrit).
+The article aims to test whether *Galaxias maculatus* can maintain oxygen consumption (MO₂) as ambient DO declines and, if so, at what level it reaches the critical oxygen saturation value for aerobic metabolism (O<sub>2crit</sub>).
 
 **AUTHORS**
 Timothy D. Clark ^[a]^
-Luis L. Kuchenmüller ^[a]^
-Elizabeth C. Hoots ^[a]^
 Maryane Gradito ^[a]^
+Elizabeth C. Hoots ^[a]^
+Luis L. Kuchenmüller ^[a]^
 Jake M. Martin ^[a,b]^
-*In no particular order*
 
 **AFFILIATIONS**
 [a] School of Life and Environmental Sciences, Deakin University, Geelong, VIC, Australia\
-[b] School of Biological Sciences, Monash University, Clayton, VIC, Australia
+[b] Department of Wildlife, Fish and Environmental Studies, Swedish University of Agricultural Sciences, Umeå, Sweden\
 
 **CONTRIBUTOR ROLES**
 🚧 ***To be added*** 🚧
@@ -95,7 +94,8 @@ I (Jake Martin) am dyslexic. I have made an effort to review the script for gram
     🚧 ***To be added*** 🚧
 
 3.  **Recommended citation for this data:**\
-    🚧 ***To be added*** 🚧
+
+Timothy D. Clark, Maryane Gradito, Elizabeth Hoots, Luis L. Kuchenmüller, Jake M. Martin (2025). The role of osmorespiratory compromise in hypoxia tolerance of the purportedly oxyconforming teleost *Galaxias maculatus*. OSF DOI:10.17605/OSF.IO/GFXCA (Last Updated: 2025-05-28 12:28 PM)
 
 <!------------------------------->
 
@@ -891,6 +891,43 @@ slope_df_filter %>%
   )
 ```
 
+Mass and size of fish after removing 6 trials which had errors
+
+```{r}
+mass_length <- slope_df_filter %>% 
+  dplyr::filter(chamber_condition == "fish") %>%
+  dplyr::group_by(id) %>% 
+  dplyr::sample_n(1) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::reframe(x_mass = round(mean(mass, na.rm = TRUE), 3),
+                 min_mass = round(min(mass, na.rm = TRUE), 3),
+                 max_mass = round(max(mass, na.rm = TRUE), 3),
+                 x_length = round(mean(length, na.rm = TRUE), 2),
+                 min_length = round(min(length, na.rm = TRUE), 2),
+                 max_length = round(max(length, na.rm = TRUE), 2))
+
+mass_mean <- mass_length %>% 
+  pull(x_mass)
+
+mass_min <- mass_length %>% 
+  pull(min_mass)
+
+mass_max <- mass_length %>% 
+  pull(max_mass)
+
+length_mean <- mass_length %>% 
+  pull(x_length)
+
+length_min <- mass_length %>% 
+  pull(min_length)
+
+length_max <- mass_length %>% 
+  pull(max_length)
+
+paste0("The mean mass of fish was ", mass_mean, " g (range: ", mass_min, "-", mass_max, ")",
+       ", and the mean length was ", length_mean, " mm (range: ", length_min, "-", length_max, ")")
+```
+
 Chamber size breakdown
 
 ```{r}
@@ -1126,6 +1163,115 @@ slope_tidy %>%
   
 ```
 
+## Visualising MO2 corrections  
+
+Let's check how data corrections change the appearance of out data 
+MO2
+
+Let's compare raw MO2 calculations (mo2), MO2 calculations after correcting background respiration (mo2_bground), and MO2 calculations after correcting for background respiration and oxygen diffusion dynamics (mo2corr). First we will need to make the mo2_bground vaule as it's not present in the datafile, and transform the data to long formate, so we can plot it more easly.
+
+
+```{r}
+slope_corr_comp <- slope_tidy %>% 
+  dplyr::group_by(id) %>% 
+  dplyr::mutate(
+    MO2_raw = abs(mo2) * net_volume * 60 * 60,
+    MO2_bground_corr = abs(mo2 - bground) * net_volume * 60 * 60,
+    MO2_corr = abs(mo2corr) * net_volume * 60 * 60
+  ) %>% 
+  dplyr::select(id, order, DO, MO2_raw, MO2_bground_corr, MO2_corr) %>% 
+  tidyr::pivot_longer(
+    cols = c(MO2_raw, MO2_bground_corr, MO2_corr), 
+    names_to = "MO2_type"
+  ) %>%
+  dplyr::mutate(
+    MO2_type = forcats::fct_relevel(MO2_type, "MO2_raw", "MO2_bground_corr", "MO2_corr")
+  ) %>%
+  dplyr::ungroup()
+```
+
+### Figure S1
+
+Now let's plot them in the same graph for each fish: 
+<span style="color:#f692B4">raw MO₂ calculations</span> are shown in pink, 
+<span style="color:#6E7889">MO₂ calculations after correcting for background respiration</span> are shown in grey, and 
+<span style="color:#53af8b">MO₂ calculations after correcting for background respiration and oxygen diffusion dynamics</span> are shown in green.
+
+```{r, fig.height = 4, fig.width= 5}
+fish_ids <- slope_corr_comp %>% 
+  dplyr::distinct(id) %>% 
+  dplyr::pull(id)
+
+for (id_i in fish_ids) {
+
+plot_i <- slope_corr_comp %>% 
+  dplyr::filter(id == id_i) %>% 
+  ggplot(aes(x = DO, y = value, colour = MO2_type)) +
+  geom_point(alpha = 0.5) +
+  theme_clean() +
+  labs(
+    subtitle = id_i,
+    x = "Dissolved oxygen percentage (DO)",
+    y = "MO2 (O2 mg/g/h)"
+  ) +
+  scale_colour_manual(values = c("#f692B4", "#6E7889", "#53af8b")) +
+  theme(legend.position = "none")
+
+print(plot_i)
+}
+```
+
+
+```{r, fig.height = 4, fig.width= 10}
+# Define your custom colour scheme
+plot_colours <- c("#f692B4", "#6E7889", "#53af8b")
+
+# Collect unique fish IDs
+fish_ids <- slope_corr_comp %>% 
+  dplyr::distinct(id) %>% 
+  dplyr::pull(id)
+
+# Create a list to store plots
+plot_list <- list()
+
+# Generate plots and add them to the list
+for (id_i in fish_ids) {
+  plot_i <- slope_corr_comp %>% 
+    dplyr::filter(id == id_i) %>% 
+    ggplot(aes(x = DO, y = value, colour = MO2_type)) +
+    geom_point(alpha = 0.5) +
+    theme_clean() +
+    labs(
+      subtitle = id_i,
+      x = "Dissolved oxygen percentage (DO)",
+      y = "MO2 (O2 mg/g/h)"
+    ) +
+    scale_colour_manual(values = plot_colours) +
+    theme(legend.position = "none")
+  
+  plot_list[[id_i]] <- plot_i
+}
+
+# Combine plots in pages of 6 (2 columns x 3 rows)
+plots_per_page <- 6
+n_pages <- ceiling(length(plot_list) / plots_per_page)
+
+# Display each page
+for (i in seq_len(n_pages)) {
+  start <- (i - 1) * plots_per_page + 1
+  end <- min(i * plots_per_page, length(plot_list))
+  page_plots <- patchwork::wrap_plots(plot_list[start:end], ncol = 2)
+  print(page_plots)
+}
+```
+
+
+**Figure S1**: Individual fish-level plots showing the relationship between dissolved oxygen (DO) percentage and metabolic oxygen consumption rate (MO₂, in mg O₂/g/h) for each 20-min interval. Each panel displays data for a single fish (fish ID in the top left of the plot). Points are colour-coded by the type of MO₂ calculation:
+<span class="pink">raw MO₂</span> (pink, #f692B4),
+<span class="grey">background-corrected MO₂</span> (grey, #6E7889), and
+<span class="green">fully corrected MO₂ (accounting for background respiration and oxygen diffusion dynamics)</span> (green, #53af8b).
+Each point represents a measurement at a specific DO level, and the slight transparency (alpha = 0.5) highlights overlapping observations.
+
 <!------------------------------->
 
 # 📊 Exploratory Data Analysis (EDA)
@@ -1134,60 +1280,60 @@ slope_tidy %>%
 
 ## O₂ vs MO₂
 
-### Figure S1
+### Figure S2
 
 This interactive was used to identify any outliers, or potential errors. This has not been generated in the PDF `Supplementary file 1`, as it is not compatible. 
 
 ```{r}
-# lm_lines <- slope_tidy %>%
-#   group_by(id) %>%
-#   summarise(
-#     DO_seq = list(seq(min(DO), max(DO), length.out = 100)),  # Generate a sequence of DO values
-#     MO2_pred = list(predict(lm(MO2_g ~ DO, data = cur_data()), newdata = data.frame(DO = seq(min(DO), max(DO), length.out = 100))))
-#   ) %>%
-#   unnest(c(DO_seq, MO2_pred))  # Expand lists into rows
-# 
-# # Create scatter plot with markers for each fish
-# p <- plot_ly(
-#   data = slope_tidy,
-#   x = ~DO,
-#   y = ~MO2_g,
-#   type = "scatter",
-#   mode = "markers",
-#   color = ~id,  # Colour points by fish ID
-#   marker = list(opacity = 0.6),
-#   name = ~id
-# )
-# 
-# # Add regression lines for each fish
-# p <- p %>%
-#   add_trace(
-#     data = lm_lines,
-#     x = ~DO_seq,
-#     y = ~MO2_pred,
-#     type = "scatter",
-#     mode = "lines",
-#     color = ~id,  # Ensure each line matches its corresponding fish
-#     line = list(width = 1, dash = "solid"),
-#     showlegend = FALSE  # Avoid cluttering the legend
-#   )
-# 
-# # Final layout
-# p <- p %>%
-#   layout(
-#     title = "MO<sub>2</sub> vs Dissolved Oxygen with individual linear regressions",
-#     xaxis = list(title = "Dissolved Oxygen (%)"),
-#     yaxis = list(title = "MO<sub>2</sub> (mg<sup>-1</sup> O<sub>2</sub> g<sup>-1</sup> h<sup>-1</sup>)"),
-#     showlegend = FALSE
-#   )
-# 
-# # Display plot
-# p
+lm_lines <- slope_tidy %>%
+  group_by(id) %>%
+  summarise(
+    DO_seq = list(seq(min(DO), max(DO), length.out = 100)),  # Generate a sequence of DO values
+    MO2_pred = list(predict(lm(MO2_g ~ DO, data = cur_data()), newdata = data.frame(DO = seq(min(DO), max(DO), length.out = 100))))
+  ) %>%
+  unnest(c(DO_seq, MO2_pred))  # Expand lists into rows
+
+# Create scatter plot with markers for each fish
+p <- plot_ly(
+  data = slope_tidy,
+  x = ~DO,
+  y = ~MO2_g,
+  type = "scatter",
+  mode = "markers",
+  color = ~id,  # Colour points by fish ID
+  marker = list(opacity = 0.6),
+  name = ~id
+)
+
+# Add regression lines for each fish
+p <- p %>%
+  add_trace(
+    data = lm_lines,
+    x = ~DO_seq,
+    y = ~MO2_pred,
+    type = "scatter",
+    mode = "lines",
+    color = ~id,  # Ensure each line matches its corresponding fish
+    line = list(width = 1, dash = "solid"),
+    showlegend = FALSE  # Avoid cluttering the legend
+  )
+
+# Final layout
+p <- p %>%
+  layout(
+    title = "MO<sub>2</sub> vs Dissolved Oxygen with individual linear regressions",
+    xaxis = list(title = "Dissolved Oxygen (%)"),
+    yaxis = list(title = "MO<sub>2</sub> (mg<sup>-1</sup> O<sub>2</sub> g<sup>-1</sup> h<sup>-1</sup>)"),
+    showlegend = FALSE
+  )
+
+# Display plot
+p
 ```
 
-***Figure S1:*** interactive plot of metabolic rate measurements (MO₂; mg O₂ g^-1^h^-1^) by dissolved oxygen percentage (DO) for all fish, including all estimates during the SMR phase (i.e. intermittent phase). Individual linear regression were fitted for visual reference, and do not represent the best fitting regression.
+***Figure S2:*** interactive plot of metabolic rate measurements (MO₂; mg O₂ g^-1^h^-1^) by dissolved oxygen percentage (DO) for all fish, including all estimates during the SMR phase (i.e. intermittent phase). Individual linear regression were fitted for visual reference, and do not represent the best fitting regression.
 
-### Figure S2
+### Figure S3
 
 Looking at the difference responses in the two salinity groups.
 
@@ -1197,7 +1343,7 @@ salinity_summary <- slope_tidy %>%
   dplyr::reframe(n = length(unique(id)))
 
 slope_tidy %>% 
-  ggplot(aes(y = MO2_g, x = DO, colour = id)) + # Default aesthetics
+  ggplot(aes(y = MO2_g, x = DO, colour = id)) + 
   geom_point(show.legend = FALSE) +
   geom_smooth(aes(group = id), method = "lm", se = FALSE, colour = scales::alpha("black", 0.5)) + # Transparent black lines
   geom_smooth(method = "lm", se = TRUE, colour = "red") + # Overall smooth line
@@ -1214,9 +1360,9 @@ slope_tidy %>%
             hjust = -0.1, vjust = 1.2, inherit.aes = FALSE, parse = TRUE)
 ```
 
-***Figure S2:*** Metabolic rate measurements (MO₂; mg O₂ g^-1^h^-1^) by dissolved oxygen percentage (DO) for fish from the two salinity treatments, including all estimates during the SMR phase (i.e. intermittent phase). Individual linear regression were fitted for visual reference, and do not represent the best fitting regression. The solid red and dashed red line represents the global trend in each of the treatments, both a linear (solid red) and non-linear (dashed red; Generalized Additive Model fitted with `geom_smooth`).
+***Figure S3:*** Metabolic rate measurements (MO₂; mg O₂ g^-1^h^-1^) by dissolved oxygen percentage (DO) for fish from the two salinity treatments, including all estimates during the SMR phase (i.e. intermittent phase). Individual linear regression were fitted for visual reference, and do not represent the best fitting regression. The solid red and dashed red line represents the global trend in each of the treatments, both a linear (solid red) and non-linear (dashed red; Generalized Additive Model fitted with `geom_smooth`).
 
-### Figure S3
+### Figure S4
 
 A plot to look at the different chamber types
 
@@ -1226,7 +1372,7 @@ chamber_summary <- slope_tidy %>%
   dplyr::reframe(n = length(unique(id)))
 
 slope_tidy %>% 
-  ggplot(aes(y = MO2_g, x = DO, colour = id)) + # Default aesthetics
+  ggplot(aes(y = MO2_g, x = DO, colour = id)) + 
   geom_point(show.legend = FALSE) +
   geom_smooth(aes(group = id), method = "lm", se = FALSE, colour = scales::alpha("black", 0.5)) + # Transparent black lines
   geom_smooth(method = "lm", se = TRUE, colour = "red") + # Overall smooth line
@@ -1243,7 +1389,7 @@ slope_tidy %>%
             hjust = -0.1, vjust = 1.2, inherit.aes = FALSE, parse = TRUE)
 ```
 
-***Figure S3:*** Metabolic rate measurements (MO₂; mg O₂ g^-1^h^-1^) by dissolved oxygen percentage (DO) for fish tested in the 4 different chamber types, including all estimates during the SMR phase (i.e. intermittent phase). Individual linear regression were fitted for visual reference, and do not represent the best fitting regression. The solid red and dashed red line represents the global trend in each of the treatments, both a linear (solid red) and non-linear (dashed red; Generalized Additive Model fitted with `geom_smooth`).
+***Figure S4:*** Metabolic rate measurements (MO₂; mg O₂ g^-1^h^-1^) by dissolved oxygen percentage (DO) for fish tested in the 4 different chamber types, including all estimates during the SMR phase (i.e. intermittent phase). Individual linear regression were fitted for visual reference, and do not represent the best fitting regression. The solid red and dashed red line represents the global trend in each of the treatments, both a linear (solid red) and non-linear (dashed red; Generalized Additive Model fitted with `geom_smooth`).
 
 
 ## Routine MO₂
@@ -1255,9 +1401,8 @@ slope_tidy_smr <- slope_tidy %>%
   dplyr::filter(phase == "smr")
 ```
 
-### Figure S4
 
-Routine MO<sub>2</sub> by salinity
+Routine MO<sub>2</sub> by salinity. Plot of all MO<sub>2</sub> measures during SMR phase by salinity treatment. The small points are the raw observed values, the shaded area behind the points is the a kernel density of the observed data, the box plot shows the median and interquartile range (IQR), and the large point shows the mean.
 
 ```{r}
 mean_mo2_salinity <- slope_tidy_smr %>% 
@@ -1286,11 +1431,8 @@ fig_i <- ggplot() +
 fig_i
 ```
 
-**Figure S4:** Plot of all MO<sub>2</sub> measures during SMR phase by salinity treatment. The small points are the raw observed values, the shaded area behind the points is the a kernel density of the observed data, the box plot shows the median and interquartile range (IQR), and the large point shows the mean.
 
 ## SMR
-
-### Figure S5
 
 Here's the same plot but for only the SMR, as estimated with calcSMR function by Chabot, Steffensen and Farrell (2016)^[1]^. Specifically, we use mean of the lowest normal distribution (MLND) where CVmlnd \< 5.4 and the mean of the lower 20% quantile (q0.2) were CVmlnd \> 5.4. If CVmlnd is not calculated we have used q0.2.
 
@@ -1325,8 +1467,6 @@ fig_i <- ggplot() +
 fig_i
 ```
 
-**Figure S5:** The standard metabolic rate (SMR) by salinity treatment. The small points are the raw observed values, the shaded area behind the points is the a kernel density of the observed data, the box plot shows the median and interquartile range (IQR), and the large point shows the mean.
-
 ## Individual O₂, MO₂, and SMR
 
 Here we will plot the individual relationship between O₂, MO₂, and SMR for all fish
@@ -1341,63 +1481,62 @@ if (!dir.exists(output_fig_slopes_wd)) {
 }
 ```
 
-Loop through each fish ID to create a plot, save these to a single PDF file, this is called `combined_slopes.pdf`   
+Loop through each fish ID to create a plot, save these to a single PDF file, this is called `combined_slopes.pdf`. It can be found in this path `output-fig/slopes/combined_slopes.pdf` 
+These plots show Metabolic rate measurements (MO₂; mg O₂ g^-1^h^-1^ by O<sub>2</sub>) at each of the four experimental phase (the over night SMR intermittent-flow respirometry phase, closed phases at 50%, 75% or 100% O<sub>2</sub>). The estimated SMR value is represented as a dashed red line.
 
 ```{r, fig.height = 3, fig.width= 4}
-# # Define consistent colors for all phases
-# phase_colors <- c(
-#   "50c"  = "#e56b6f",
-#   "75c"  = "#b56576",
-#   "100c" = "#6d597a",
-#   "smr"  = "#355070"
-# )
-# 
-# ids <- slope_tidy %>% 
-#   dplyr::distinct(id) %>% 
-#   pull(id) %>% 
-#   as.list()
-# 
-# MO2_plot_list <- list()
-# 
-# # 1) Open the PDF device once
-# pdf(
-#   file   = file.path(output_fig_slopes_wd, "combined_slopes.pdf"), 
-#   width  = 8, 
-#   height = 6
-# )
-# 
-# # 2) Loop over IDs and create each plot
-# for (id_i in ids) {
-#   
-#   smr <- slope_tidy %>% 
-#     dplyr::filter(id == id_i) %>% 
-#     dplyr::slice(1) %>% 
-#     dplyr::pull(SMR)
-#   
-#   plot <- slope_tidy %>% 
-#     dplyr::filter(id == id_i) %>% 
-#     ggplot(aes(x = o2, y = MO2)) +
-#     geom_hline(yintercept = smr, linetype = "dashed", color = "darkred") +
-#     geom_point(aes(colour = phase)) +
-#     scale_color_manual(values = phase_colors, drop = FALSE) +  # Ensures consistent colours
-#     theme_clean() +
-#     labs(
-#       subtitle = paste0(id_i, " slopes"),
-#       x = "Mean o2 (mg_per_l)",
-#       y = "abs(mo2) (mg_per_l)"
-#     )
-#   
-#   # Instead of saving each plot separately, just print it
-#   print(plot)
-#   
-#   MO2_plot_list[[id_i]] <- plot
-# }
-# 
-# # 3) Close the PDF device *after* the loop
-# dev.off()
-```
+# Define consistent colors for all phases
+phase_colors <- c(
+  "50c"  = "#e56b6f",
+  "75c"  = "#b56576",
+  "100c" = "#6d597a",
+  "smr"  = "#355070"
+)
 
-**Figure S7**: Metabolic rate measurements (MO₂; mg O₂ g^-1^h^-1^ by O<sub>2</sub>) at each of the four experimental phase (the over night SMR intermittent-flow respirometry phase, closed phases at 50%, 75% or 100% O<sub>2</sub>). The estimated SMR value is represented as a dashed red line.
+ids <- slope_tidy %>%
+  dplyr::distinct(id) %>%
+  pull(id) %>%
+  as.list()
+
+MO2_plot_list <- list()
+
+# 1) Open the PDF device once
+pdf(
+  file   = file.path(output_fig_slopes_wd, "combined_slopes.pdf"),
+  width  = 8,
+  height = 6
+)
+
+# 2) Loop over IDs and create each plot
+for (id_i in ids) {
+
+  smr <- slope_tidy %>%
+    dplyr::filter(id == id_i) %>%
+    dplyr::slice(1) %>%
+    dplyr::pull(SMR)
+
+  plot <- slope_tidy %>%
+    dplyr::filter(id == id_i) %>%
+    ggplot(aes(x = o2, y = MO2)) +
+    geom_hline(yintercept = smr, linetype = "dashed", color = "darkred") +
+    geom_point(aes(colour = phase)) +
+    scale_color_manual(values = phase_colors, drop = FALSE) +  # Ensures consistent colours
+    theme_clean() +
+    labs(
+      subtitle = paste0(id_i, " slopes"),
+      x = "Mean o2 (mg_per_l)",
+      y = "abs(mo2) (mg_per_l)"
+    )
+
+  # Instead of saving each plot separately, just print it
+  print(plot)
+
+  MO2_plot_list[[id_i]] <- plot
+}
+
+# 3) Close the PDF device *after* the loop
+dev.off()
+```
 
 <!------------------------------->
 
@@ -1463,7 +1602,7 @@ default_prior %>%
 
 Here we run the model, I have hashed this out because I have saved the model for quick reloading.
 
-⏭️ **Skip this step** if you have downloaded the saved model 'mo2_mod_gamma.rds'
+⏭️ **Skip this step** if you have downloaded the saved model `mo2_mod_gamma.rds` from GitHub (or pulled the entire GitHub project)
 
 ```{r, echo=FALSE}
 # mo2_mod_gamma <- brm(mo2_gamma_bf,
@@ -1580,7 +1719,7 @@ contrast_results_df %>%
   gt()
 ```
 
-Here we we calculate the model-estimated marginal means for MO2 for a unit increase in mass and transform this onto a fold-change scale. Where log(mass) has be centered, a caule of 0 represents the mean mass of fish, and 1 corresponds to a fish with log(mass) = 1 unit above the mean (i.e. 2.7 times large).
+Here we we calculate the model-estimated marginal means for MO2 for a unit increase in mass and transform this onto a fold-change scale. Where log(mass) has be centered, a vaule of 0 represents the mean mass of fish, and 1 corresponds to a fish with log(mass) = 1 unit above the mean (i.e. 2.7 times large).
 
 log(mass<sub>2</sub>) = log(mass<sub>1</sub>)+1
 
@@ -1617,9 +1756,9 @@ emmeans_contrast_draws_rmr  <-  mo2_mod_gamma %>%
   dplyr::mutate(.value =  exp(.value))
 ```
 
-#### Figure S7 (Figure 1a)
+#### Figure 1a
 
-***NOTE: This plot is in the main text of the manuscript as Figure 1a***
+***NOTE: This plot is in the main text of the manuscript, which is way it is called Figure 1a (not Figure Si)***
 
 ```{r}
 fig_1a <- ggplot() +
@@ -1666,6 +1805,19 @@ fig_1a
 #        height = 297/2,  # Specify the height of the plot
 #        units = "mm")
 ```
+
+
+There was moderate but meaningful variation in RMR between individuals, even after accounting for mass, temperature, salinity, and light phase. The estimated standard deviation of individual RMR was 0.31 [0.26 to 0.38], indicating that individual identity explained a meaningful proportion of the observed variation.
+
+```{r}
+random_effect <- summary(mo2_mod_gamma)$random$id
+random_effect %>% 
+  gt()
+```
+
+
+
+## MENTION R vaules with text from MS
 
 ## SMR
 
@@ -1850,9 +2002,9 @@ emmeans_contrast_draws_smr <-  smr_mod_gamma %>%
   dplyr::mutate(.value =  exp(.value))
 ```
 
-#### Figure S8 (Figure 1b)
+#### Figure 1b
 
-This plot is in the main text of the manuscript as **Figure 1b**
+**NOTE: This plot is in the main text of the manuscript which is why it is Figure 1b (not Figure Si)**
 
 ```{r}
 mean_smr_salinity <- smr %>%
@@ -1895,10 +2047,7 @@ fig_1b <- ggplot() +
 fig_1b
 ```
 
-labs(
-    y = expression("mg O"[2]~"h"^-1),
-    x = "Dissolved oxygen (DO; % saturation)"
-  ) +
+
 **Figure 1b:** The standard metabolic rate estimate (mg^-1^ O<sub>2</sub> h^-1^) plotted by salinity treatment. The small transparent points are the observed values, the shaded area behind the points is the a kernel density of the observed data, the large coloured point (to the right) is the observed mean, the large grey point with error bars (to the left) is the model estimated marginal mean (eemean) 95% Credible Intervals (95% CI).
 
 ```{r}
@@ -2281,7 +2430,7 @@ Load data frame
 global_models_pred_df <- read.csv(paste0(mod_data_wd, "/.global_models_pred_df.csv"))
 ```
 
-#### Figure S9
+#### Figure S5
 
 Best fit regressions with global models based on that polynomial order.
 
@@ -2301,7 +2450,7 @@ annotation_data <- mod_summary_table %>%
 bayes_reg_mods_predictions_best <- bayes_reg_mods_predictions %>% 
   dplyr::filter(elpd_loo_rank == 1) 
 
-fig_2 <- ggplot() +
+fig_s5 <- ggplot() +
   geom_line(data = bayes_reg_mods_predictions_best,
             aes(x = DO, y = predicted, color = id), size = 1) +
   # geom_smooth(data = best_fit,
@@ -2323,10 +2472,10 @@ fig_2 <- ggplot() +
   geom_text(data = annotation_data,
             aes(x = -Inf, y = Inf, label = paste0("italic(n) == ", n)),
             hjust = -0.1, vjust = 1.2, inherit.aes = FALSE, parse = TRUE)
-fig_2
+fig_s5
 ```
 
-**Figure S9:** Individual regression curves showing the relationship between mass-specific oxygen consumption rate (ṀO₂; mg⁻¹ O₂ h⁻¹) and ambient dissolved oxygen (DO; % saturation), grouped by the best-fitting polynomial order (0ᵗʰ to 3ʳᵈ). Each panel represents fish whose ṀO₂–DO relationship was best modelled by that polynomial order, based on leave-one-out cross-validation (LOO-CV). Grey lines represent individual model fits; the bold pink line shows the group-level trend within each polynomial class. Fish were most commonly best fit by a 2ⁿᵈ-order polynomial (n = 22), followed by 3ʳᵈ-order (*n* = 15), 1ˢᵗ-order (*n* = 11), and 0ᵗʰ-order (**n = 10). Higher-order fits (2ⁿᵈ and 3ʳᵈ) and 0ᵗʰ-order fits are generally indicative of oxyregulating responses, while 1ˢᵗ-order fits may suggest oxyconforming behaviour when positively sloped.  
+**Figure S5:** Individual regression curves showing the relationship between mass-specific oxygen consumption rate (ṀO₂; mg⁻¹ O₂ h⁻¹) and ambient dissolved oxygen (DO; % saturation), grouped by the best-fitting polynomial order (0ᵗʰ to 3ʳᵈ). Each panel represents fish whose ṀO₂–DO relationship was best modelled by that polynomial order, based on leave-one-out cross-validation (LOO-CV). Grey lines represent individual model fits; the bold pink line shows the group-level trend within each polynomial class. Fish were most commonly best fit by a 2ⁿᵈ-order polynomial (n = 22), followed by 3ʳᵈ-order (*n* = 15), 1ˢᵗ-order (*n* = 11), and 0ᵗʰ-order (**n = 10). Higher-order fits (2ⁿᵈ and 3ʳᵈ) and 0ᵗʰ-order fits are generally indicative of oxyregulating responses, while 1ˢᵗ-order fits may suggest oxyconforming behaviour when positively sloped.  
 
 
 ```{r}
@@ -2401,78 +2550,78 @@ pcrit_model_df <- bind_rows(pcrit_model_df_list)
 Here's we are saving all O<sub>2crit</sub> models, even those MO<sub>2</sub>-O<sub>2</sub> relationships best modelled by 0^th^- and 1^st^-order polynomials.
 
 ```{r}
-# # Create output directory if needed
-# output_fig_pcrit_chabot_wd <- file.path(output_fig_wd, "model_chabot")
-# if (!dir.exists(output_fig_pcrit_chabot_wd)) {
-#   dir.create(output_fig_pcrit_chabot_wd)
-# }
-# 
-# ids <- slope_tidy %>% 
-#   dplyr::distinct(id) %>% 
-#   dplyr::pull()
-# 
-# pcrit_chabot_list <- list()
-# 
-# # Open a single PDF device
-# pdf(file = file.path(output_fig_pcrit_chabot_wd, "combined_chabot_plots.pdf"), 
-#     width = 8, height = 6)
-# 
-# for (id_i in ids) {
-#   
-#   best_mod_type <- best_mod %>%
-#   dplyr::filter(id == id_i) %>% 
-#   pull(model_type)
-#   
-#   r2 <- pcrit_model_df %>% 
-#     dplyr::filter(id == id_i) %>% 
-#     dplyr::mutate(pcrit_r2 = round(pcrit_r2, 3)) %>% 
-#     dplyr::pull(pcrit_r2)
-#   
-#   conforming <- pcrit_model_df %>% 
-#     dplyr::filter(id == id_i) %>% 
-#     dplyr::mutate(pcrit_nb_mo2_conforming = round(pcrit_nb_mo2_conforming, 3)) %>% 
-#     dplyr::pull(pcrit_nb_mo2_conforming)
-#   
-#   P <- pcrit_model_df %>% 
-#     dplyr::filter(id == id_i) %>% 
-#     dplyr::mutate(pcrit_p = round(pcrit_p, 3)) %>% 
-#     dplyr::pull(pcrit_p)
-#   
-#   SMR <- pcrit_model_df %>% 
-#     dplyr::filter(id == id_i) %>% 
-#     dplyr::mutate(pcrit_smr = round(pcrit_smr, 3)) %>% 
-#     dplyr::pull(pcrit_smr)
-#   
-#   lowestMO2 <- pcrit_model_df %>% 
-#     dplyr::filter(id == id_i) %>% 
-#     dplyr::mutate(pcrit_lowestMO2 = round(pcrit_lowestMO2, 3)) %>% 
-#     dplyr::pull(pcrit_lowestMO2)
-#   
-#   # Generate and render the plot
-#   plotO2crit(o2critobj = pcrit_models[[id_i]])
-#   
-#   # Add a title
-#   mtext(
-#     text = paste0(id_i),
-#     side = 3, line = 2, adj = 0,
-#     col = "blue", font = 2, cex = 1.2
-#   )
-#   
-#   mtext(
-#     text = paste0("R2 = ", r2, "; p = ", P, "; CP < SMR = ", conforming, "; SMR = ", SMR, "; lowestMO2 = ",lowestMO2),
-#     side = 3, line = 1, adj = 0,
-#     col = "blue", font = 1, cex = 0.8
-#   )
-#   
-#   mtext(
-#     text = paste0("Best model fit = ", best_mod_type),
-#     side = 3, line = 0, adj = 0,
-#     col = "red", font = 1, cex = 0.8
-#   )
-# }
-# 
-# # Close the PDF device *after* the loop
-# dev.off()
+# Create output directory if needed
+output_fig_pcrit_chabot_wd <- file.path(output_fig_wd, "model_chabot")
+if (!dir.exists(output_fig_pcrit_chabot_wd)) {
+  dir.create(output_fig_pcrit_chabot_wd)
+}
+
+ids <- slope_tidy %>%
+  dplyr::distinct(id) %>%
+  dplyr::pull()
+
+pcrit_chabot_list <- list()
+
+# Open a single PDF device
+pdf(file = file.path(output_fig_pcrit_chabot_wd, "combined_chabot_plots.pdf"),
+    width = 8, height = 6)
+
+for (id_i in ids) {
+
+  best_mod_type <- best_mod %>%
+  dplyr::filter(id == id_i) %>%
+  pull(model_type)
+
+  r2 <- pcrit_model_df %>%
+    dplyr::filter(id == id_i) %>%
+    dplyr::mutate(pcrit_r2 = round(pcrit_r2, 3)) %>%
+    dplyr::pull(pcrit_r2)
+
+  conforming <- pcrit_model_df %>%
+    dplyr::filter(id == id_i) %>%
+    dplyr::mutate(pcrit_nb_mo2_conforming = round(pcrit_nb_mo2_conforming, 3)) %>%
+    dplyr::pull(pcrit_nb_mo2_conforming)
+
+  P <- pcrit_model_df %>%
+    dplyr::filter(id == id_i) %>%
+    dplyr::mutate(pcrit_p = round(pcrit_p, 3)) %>%
+    dplyr::pull(pcrit_p)
+
+  SMR <- pcrit_model_df %>%
+    dplyr::filter(id == id_i) %>%
+    dplyr::mutate(pcrit_smr = round(pcrit_smr, 3)) %>%
+    dplyr::pull(pcrit_smr)
+
+  lowestMO2 <- pcrit_model_df %>%
+    dplyr::filter(id == id_i) %>%
+    dplyr::mutate(pcrit_lowestMO2 = round(pcrit_lowestMO2, 3)) %>%
+    dplyr::pull(pcrit_lowestMO2)
+
+  # Generate and render the plot
+  plotO2crit(o2critobj = pcrit_models[[id_i]])
+
+  # Add a title
+  mtext(
+    text = paste0(id_i),
+    side = 3, line = 2, adj = 0,
+    col = "blue", font = 2, cex = 1.2
+  )
+
+  mtext(
+    text = paste0("R2 = ", r2, "; p = ", P, "; CP < SMR = ", conforming, "; SMR = ", SMR, "; lowestMO2 = ",lowestMO2),
+    side = 3, line = 1, adj = 0,
+    col = "blue", font = 1, cex = 0.8
+  )
+
+  mtext(
+    text = paste0("Best model fit = ", best_mod_type),
+    side = 3, line = 0, adj = 0,
+    col = "red", font = 1, cex = 0.8
+  )
+}
+
+# Close the PDF device *after* the loop
+dev.off()
 ```
 
 Now printing the fish that were fitted with higher order-polynomials in the htlm document
@@ -2494,11 +2643,6 @@ higher_order_ids <-  pcrit_model_meta %>%
 
 for (id_i in higher_order_ids) {
   
-  comment <- pcrit_model_meta %>% 
-    dplyr::filter(id == id_i) %>% 
-    dplyr::slice(1) %>% 
-    dplyr::mutate(comment = if_else(is.na(comments), "", paste0("#", comments))) %>% 
-    pull(comment)
   
   r2 <- pcrit_model_meta %>% 
     dplyr::filter(id == id_i) %>% 
@@ -2530,7 +2674,7 @@ for (id_i in higher_order_ids) {
   
   # Add a title
   mtext(
-    text = paste0(id_i, " ", comment),
+    text = paste0(id_i),
     side = 3, line = 2, adj = 0,
     col = "blue", font = 2, cex = 1.2
   )
@@ -2549,6 +2693,95 @@ for (id_i in higher_order_ids) {
 }
 ```
 
+
+### O₂crit numerical rules
+
+We applied a numerical rule to asses if a O<sub>2crit</sub> was observed. Specifically, we filtered for only cases were at the lowest O₂ value three consecutive MO₂ measures full below our SMR and fifth percentile of the MO2 values observed at dissolved O2 levels > 80%. In the model output these are called nb_mo2_conforming points.
+
+```{r}
+o2crit_numerical_yes <- pcrit_model_df %>% 
+  dplyr::filter(pcrit_nb_mo2_conforming > 2) %>% 
+  pull(id)
+
+paste0("Based on this rule there are ", length(o2crit_numerical_yes), " fish with possible O₂crits.")
+```
+
+
+#### Figure S6
+
+Plotting fish that meet our numerical rule for O<sub>2crit</sub> 
+
+```{r, fig.height = 3, fig.width= 8}
+
+par(mfrow = c(1, 2), mar = c(4, 4, 4, 2)) 
+
+for (id_i in o2crit_numerical_yes) {
+  
+  
+  r2 <- pcrit_model_meta %>% 
+    dplyr::filter(id == id_i) %>% 
+    dplyr::mutate(pcrit_r2 = round(pcrit_r2, 3)) %>% 
+    dplyr::pull(pcrit_r2)
+  
+  conforming <- pcrit_model_meta %>% 
+    dplyr::filter(id == id_i) %>% 
+    dplyr::mutate(pcrit_nb_mo2_conforming = round(pcrit_nb_mo2_conforming, 3)) %>% 
+    dplyr::pull(pcrit_nb_mo2_conforming)
+  
+  P <- pcrit_model_meta %>% 
+    dplyr::filter(id == id_i) %>% 
+    dplyr::mutate(pcrit_p = round(pcrit_p, 3)) %>% 
+    dplyr::pull(pcrit_p)
+  
+  SMR <- pcrit_model_meta %>% 
+    dplyr::filter(id == id_i) %>% 
+    dplyr::mutate(pcrit_smr = round(pcrit_smr, 3)) %>% 
+    dplyr::pull(pcrit_smr)
+  
+  lowestMO2 <- pcrit_model_meta %>% 
+    dplyr::filter(id == id_i) %>% 
+    dplyr::mutate(pcrit_lowestMO2 = round(pcrit_lowestMO2, 3)) %>% 
+    dplyr::pull(pcrit_lowestMO2)
+  
+  # Generate and render the plot
+  plotO2crit(o2critobj = pcrit_models[[id_i]])
+  
+  # Add a title
+  mtext(
+    text = paste0(id_i),
+    side = 3, line = 2, adj = 0,
+    col = "blue", font = 2, cex = 1.2
+  )
+  
+  mtext(
+    text = paste0("R2 = ", r2, "; p = ", P, "; CP < SMR = ", conforming),
+    side = 3, line = 1, adj = 0,
+    col = "blue", font = 0.5, cex = 0.8
+  )
+  
+   mtext(
+    text = paste0("SMR = ", SMR, "; lowestMO2 = ",lowestMO2),
+    side = 3, line = 0, adj = 0,
+    col = "blue", font = 0.5, cex = 0.8
+  )
+}
+```
+
+**Figure S6**: Representative examples of fish that were best modelled by a 2nd- or 3rd-order polynomial and meet the numerical inclusion criteria. The horizontal solid orange line shows the standard metabolic rate (SMR), the horizontal solid pink line shows thelowestMO2 (as defined by  Claireaux and Chabot (2016)), the solid/dashed blue/green slope line shows the O2 regulation failure regression (based on the rule-based linear regression method of Claireaux and Chabot (2016); where the colour and line type indicate the type of regression fitted, through orgin or not), and the solid vertical blue/green line shows the O2crit estimate (intersection of O2 failure regression and SMR).
+
+How many from each salinity treatment
+
+```{r}
+slope_tidy %>% 
+  dplyr::filter(id %in% o2crit_numerical_yes) %>% 
+  dplyr::group_by(id) %>% 
+  dplyr::slice(1) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::group_by(salinity_group) %>% 
+  dplyr::reframe(n = length (id)) %>% 
+  dplyr::ungroup() %>% 
+  gt()
+```
 
 ### Visual inspection
 
@@ -2583,7 +2816,7 @@ disagreement_summary %>%
   gt()
 ```
 
-#### Figure S10
+#### Figure S7
 
 Here's a heat map to show decisions for each fish
 
@@ -2613,6 +2846,12 @@ ggplot(o2crit_check, aes(x = expert, y = id, fill = pcrit_cat)) +
   )
 ```
 
+
+**Figure S7**: Heatmap showing the visual assessment of critical oxygen saturation (O<sub>2crits</sub>) category ("no", "maybe" or "yes") for each fish by expert assessor (Elizabeth C. Hoots [ech], Jake M. Martin [jmm], Luis L. Kuchenmülle [llk] Maryane Gradito [mg], Timothy D. Clark [tdc]). Each tile represents one fish-expert pairing, colour-coded by assigned category:
+<span style="color:#E03C32"><strong>no</strong></span> (red, #E03C32),
+<span style="color:#FFD301"><strong>maybe</strong></span> (yellow, #FFD301), and
+<span style="color:#7BB662"><strong>yes</strong></span> (green, #7BB662).
+
 Expert deviation from the majority assessment ranged from 22.41 to 6.90%.
 
 ```{r}
@@ -2640,20 +2879,6 @@ o2crit_visual_yes <-  disagreement_summary %>%
 paste0("Based on the majority visual assessment ", length(o2crit_visual_yes), " fish have possible O₂crit.")
 ```
 
-### O₂crit numerical rules
-
-We also used a numerical rule to asses if a O<sub>2crit</sub> was observed.
-
-We filtered for only cases were at the lowest O₂ value three consecutive MO₂ measures full below our SMR and fifth percentile of the MO2 values observed at dissolved O2 levels > 80%. In the model output these are called nb_mo2_conforming points.
-
-```{r}
-o2crit_numerical_yes <- pcrit_model_df %>% 
-  dplyr::filter(pcrit_nb_mo2_conforming > 2) %>% 
-  pull(id)
-
-paste0("Based on this rule there are ", length(o2crit_numerical_yes), " fish with possible O₂crits.")
-```
-
 ### O₂crit numbers
 
 We will now check to see which fish have O<sub>2crit</sub> based on the numerical and visual inspections.   
@@ -2673,6 +2898,21 @@ list(
   Unique_to_numerical = unique_to_numerical
 )
 ```
+
+How many per salinity treatment 
+
+```{r}
+slope_tidy %>% 
+  dplyr::filter(id %in% shared_elements) %>% 
+  dplyr::group_by(id) %>% 
+  dplyr::slice(1) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::group_by(salinity_group) %>% 
+  dplyr::reframe(n = length (id)) %>% 
+  dplyr::ungroup() %>% 
+  gt()
+```
+
 
 #### 📈 Results
 
@@ -2740,6 +2980,7 @@ pcrit_model_meta %>%
   gt()
 ```
 
+### Figure S8
 
 These are the 8 fish that meet numerical criteria and passed visual inspection.
 
@@ -2798,6 +3039,7 @@ for (id_i in shared_elements) {
 }
 ```
 
+**Figure S8**: Representative examples of fish that were best modelled by a 2nd- or 3rd-order polynomial and meet the numerical inclusion criteria. The horizontal solid orange line shows the standard metabolic rate (SMR), the horizontal solid pink line shows thelowestMO2 (as defined by  Claireaux and Chabot (2016)), the solid/dashed blue/green slope line shows the O2 regulation failure regression (based on the rule-based linear regression method of Claireaux and Chabot (2016); where the colour and line type indicate the type of regression fitted, through orgin or not), and the solid vertical blue/green line shows the O2crit estimate (intersection of O2 failure regression and SMR).
 
 Pulling model method and lethal points
 
@@ -2831,7 +3073,7 @@ pcrit_mean_plot_df <- bind_rows(pcrit_mean_plot)
 ```
 
 
-#### Figure S11
+### Figure S9
 
 Making a O2crit plot for each of the eight fish that past visual and  numerical assessment on the same axis.   
 
@@ -2900,14 +3142,14 @@ smooth_segments <- map_dfr(unique(pcrit_summary$id), function(cur_id) {
   ) 
   })
 
-Fig_4 <- ggplot() +
+Fig_s9 <- ggplot() +
   geom_point(data = pcrit_mean_plot_df %>%
                dplyr::filter(id %in% shared_elements), 
              aes(x = DO, y = MO2, colour = id, alpha = leathal)) +
   scale_alpha_manual(values = c("regulation" = 0.2, "nonregulation" = 0.8)) +
   guides(alpha = "none") +
   geom_line(data = smooth_segments,
-            aes(x = DO, y = MO2_pred, colour = id), size = 1.2) +
+            aes(x = DO, y = MO2_pred, colour = id), linewidth = 1.2) +
   geom_segment(data = pcrit_summary,
              aes(x = pcrit, xend = max_DO, y = SMR, yend = SMR)) +
   geom_segment(data = pcrit_summary,
@@ -2920,12 +3162,15 @@ Fig_4 <- ggplot() +
   ) +
   theme(legend.position = "bottom")
 
-Fig_4
+Fig_s9
 ```
 
 
-**Figure S10**: Oxygen consumption rate (ṀO₂; mg⁻¹ O₂ h⁻¹) and ambient dissolved oxygen (DO; % saturation) plotted for each fish that passed both past visual and  numerical assessment for O<sub>2crit</sub>. The horizontal dashed lines show SMR, the solid sloped lines represent the linear best fit for ṀO values below regulatory failure. The vertical soild lines represent O<sub>2crit</sub> (the intersection of the linear best fit for ṀO values below regulatory failure and SMR).
+**Figure S9**: Oxygen consumption rate (ṀO₂; mg⁻¹ O₂ h⁻¹) and ambient dissolved oxygen (DO; % saturation) plotted for each fish that passed both past visual and  numerical assessment for O<sub>2crit</sub>. The horizontal dashed lines show SMR, the solid sloped lines represent the linear best fit for ṀO values below regulatory failure. The vertical soild lines represent O<sub>2crit</sub> (the intersection of the linear best fit for ṀO values below regulatory failure and SMR).
 
+
+
+### Figure 2
 
 Let's make some example plots for each major types of O2-MO2 relationships (i.e. 0^th^-, 1^st^-, and 2^nd^/3^rd^- order polynomial).   
 
@@ -3075,10 +3320,8 @@ fig_2c <- ggplot() +
 
 ```
 
-#### Figure S12 (Figure 2)
 
-Here we are showing the out put of the Chabot O<sub>2crit</sub> model, 
-
+Let's combined them in one plot
 
 ```{r, fig.height=10, fig.width=5}
 fig_2_bind <- grid.arrange(fig_2a, fig_2b, fig_2c, ncol = 1) #bind plot
@@ -3118,7 +3361,7 @@ time_bin_df <- slope_tidy %>%
                  o2_kpa_sd = sd(o2_kpa))
 ```
 
-## Figure S13 (Figure 3)
+## Figure 3
 
 Now the plot with our mean data and the mean data from Urbina, Glover, and Forster (2012)^[1]^   
 

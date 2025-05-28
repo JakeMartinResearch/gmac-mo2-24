@@ -95,7 +95,7 @@ I (Jake Martin) am dyslexic. I have made an effort to review the script for gram
 
 3.  **Recommended citation for this data:**\
 
-Timothy D. Clark, Maryane Gradito, Elizabeth Hoots, Luis L. Kuchenmüller, Jake M. Martin (2025). The role of osmorespiratory compromise in hypoxia tolerance of the purportedly oxyconforming teleost *Galaxias maculatus*. OSF DOI:10.17605/OSF.IO/GFXCA (Last Updated: 2025-05-28 12:28 PM)
+Clark, T. D., Gradito, M., Hoots, E. C., Kuchenmüller, L. L., & Martin, J. M. (2025, May 28). The role of osmorespiratory compromise in hypoxia tolerance of the purportedly oxyconforming teleost Galaxias maculatus. https://doi.org/10.17605/OSF.IO/GFXCA
 
 <!------------------------------->
 

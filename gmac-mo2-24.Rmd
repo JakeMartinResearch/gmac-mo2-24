@@ -1,5 +1,5 @@
 ---
-title: "The role of osmorespiratory compromise in hypoxia tolerance of the purportedly oxyconforming teleost Galaxias maculatus"
+title: "The role of osmorespiratory compromise in metabolism and hypoxia tolerance of a purportedly oxyconforming teleost"
 author: "Jake Martin"
 date: "`r format(Sys.time(), '%d %B %Y')`"
 output:
@@ -39,29 +39,23 @@ knit: |
 
 <!------------------------------->
 
-**🚧 UNPUBLISHED AND ONGOING example 🚧**
-The data in this script are currently **unpublished**, and the **analysis is ongoing**. Some sections may be incomplete. This script has been made publicly available to facilitate sharing with collaborators and colleagues who are interested in the progress of the project and to ensure transparency.
-
 **SUMMARY**
-This R code estimates the relationship between oxygen consumption (MO₂) and dissolved oxygen saturation (DO) in the Common Galaxias (*Galaxias maculatus*). It also estimates the critical oxygen saturation value for aerobic metabolism O<sub>2crit</sub>, commonly defined as the threshold below which the oxygen consumption rate can no longer be sustained. The associated article is titled *"The role of osmorespiratory compromise in hypoxia tolerance of the purportedly oxyconforming teleost Galaxias maculatus."* If you are reading the HTML version of this script, click the `Code` button in the top right to download the `.Rmd` file.
+This R code estimates the relationship between oxygen consumption (MO₂) and dissolved oxygen saturation (DO) in the Common Galaxias (*Galaxias maculatus*). It also estimates the critical oxygen saturation value for aerobic metabolism O<sub>2crit</sub>, commonly defined as the threshold below which the oxygen consumption rate can no longer be sustained. The associated article is titled *"The role of osmorespiratory compromise in metabolism and hypoxia tolerance of a purportedly oxyconforming teleost."* If you are reading the HTML version of this script, click the `Code` button in the top right to download the `.Rmd` file.
 
 **AIM**
 The article aims to test whether *Galaxias maculatus* can maintain oxygen consumption (MO₂) as ambient DO declines and, if so, at what level it reaches the critical oxygen saturation value for aerobic metabolism (O<sub>2crit</sub>).
 
 **AUTHORS**
 Timothy D. Clark ^[a]^
-Maryane Gradito ^[a]^
-Elizabeth C. Hoots ^[a]^
 Luis L. Kuchenmüller ^[a]^
+Elizabeth C. Hoots ^[a]^
+Maryane Gradito ^[a]^
 Jake M. Martin ^[a,b]^
 
 **AFFILIATIONS**
 [a] School of Life and Environmental Sciences, Deakin University, Geelong, VIC, Australia\
 [b] Department of Wildlife, Fish and Environmental Studies, Swedish University of Agricultural Sciences, Umeå, Sweden\
 
-**CONTRIBUTOR ROLES**
-🚧 ***To be added*** 🚧
-*Based on the Contributor Roles Taxonomy (CRediT)*
 
 **DISCLAIMER**
 I (Jake Martin) am dyslexic. I have made an effort to review the script for grammatical errors, but some will likely remain. I apologise. Please feel free to reach out using the contact details below if anything is unclear.
@@ -95,7 +89,7 @@ I (Jake Martin) am dyslexic. I have made an effort to review the script for gram
 
 3.  **Recommended citation for this data:**\
 
-Clark, T. D., Gradito, M., Hoots, E. C., Kuchenmüller, L. L., & Martin, J. M. (2025, May 28). The role of osmorespiratory compromise in hypoxia tolerance of the purportedly oxyconforming teleost Galaxias maculatus. https://doi.org/10.17605/OSF.IO/GFXCA
+Clark, T. D., Kuchenmüller, L. L., Hoots, E. C., Gradito, M., & Martin, J. M. (2025, May 28). The role of osmorespiratory compromise in hypoxia tolerance of the purportedly oxyconforming teleost Galaxias maculatus. https://doi.org/10.17605/OSF.IO/GFXCA
 
 <!------------------------------->
 

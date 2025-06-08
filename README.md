@@ -1,4 +1,4 @@
-# The role of osmorespiratory compromise in hypoxia tolerance of the purportedly oxyconforming teleost *Galaxias maculatus* (gmac-mo2-24)  
+# The role of osmorespiratory compromise in metabolism and hypoxia tolerance of a purportedly oxyconforming teleost (gmac-mo2-24)  
 
 [![License: CC BY 4.0](https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
 
@@ -8,12 +8,11 @@
 
 ## 📄 Project Summary
 
--   **Title**: The role of osmorespiratory compromise in hypoxia tolerance of the purportedly oxyconforming teleost *Galaxias maculatus*
+-   **Title**: The role of osmorespiratory compromise in metabolism and hypoxia tolerance of a purportedly oxyconforming teleost
 -   **Authors**: Timothy D. Clark^1^, Luis L. Kuchenmüller^1^, Elizabeth C. Hoots^1^, Maryane Gradito^1^, and Jake M. Martin^1,2^ <br>
 -   **Institutions**:\
     ^1^ School of Life and Environmental Sciences, Deakin University, Geelong, VIC, Australia\
     ^2^ Department of Wildlife, Fish and Environmental Studies, Swedish University of Agricultural Sciences, Umeå, Sweden\
--   **Status**: 🚧 Unpublished and ongoing 🚧
 
 This project tests:\
 1. Whether *G. maculatus* exhibits oxyregulation\
@@ -29,13 +28,14 @@ The study compares SMR, RMR, and estimated O2crit values across salinity treatme
 
 ```         
 📁 gmac-mo2-24/
-├── 📂 input-data/           Raw and cleaned input data
-├── 📂 mod-data/             Intermediate summaries for modelling
-├── 📂 output-fig/           Final figures used in the manuscript
-├── 📂 output-mod/           Model outputs (.rds files)
-├── 📄 gmac-labchart-24.Rmd  Main analysis and figure script
-├── 📄 index.html            Rendered HTML results
-└── 📄 EXP-2024-gmac-labchart.Rproj  RStudio project file
+├── 📂 input-data/                 Raw and cleaned input data
+├── 📂 mod-data/                   Intermediate summaries for modelling
+├── 📂 output-fig/                 Final figures used in the manuscript
+├── 📂 output-mod/                 Model outputs (.rds files)
+├── 📄 gmac-labchart-24.Rmd        Main analysis and figure script
+├── 📄 index.html                  R script for Git page 
+├── 📄 supplementary-file-1.html   R script as supplementary file 1
+└── 📄 EXP-2024-gmac-labchart.Rproj RStudio project file
 ```
 
 ------------------------------------------------------------------------
@@ -126,7 +126,7 @@ All data and code is also available on the Open Science Framework (OSF)
 
 🌐 [Click here for the page](https://www.youtube.com/watch?v=HzTqHk4XjQQ)
 
-THis is the DOI **10.17605/OSF.IO/GFXCA** 
+This is the DOI **10.17605/OSF.IO/GFXCA** 
 
 ------------------------------------------------------------------------
 
@@ -139,7 +139,7 @@ THis is the DOI **10.17605/OSF.IO/GFXCA**
 
 3.  **Recommended citation for this data:**\
 
-Clark, T. D., Gradito, M., Hoots, E. C., Kuchenmüller, L. L., & Martin, J. M. (2025, May 28). The role of osmorespiratory compromise in hypoxia tolerance of the purportedly oxyconforming teleost Galaxias maculatus. https://doi.org/10.17605/OSF.IO/GFXCA
+Clark, T. D., Kuchenmüller, L. L.,  Hoots, E. C., Gradito, M., & Martin, J. M. (2025, May 28). TThe role of osmorespiratory compromise in metabolism and hypoxia tolerance of a purportedly oxyconforming teleost. https://doi.org/10.17605/OSF.IO/GFXCA
 
 ------------------------------------------------------------------------
 

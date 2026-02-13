@@ -1,4 +1,4 @@
-# The role of osmorespiratory compromise in metabolism and hypoxia tolerance of a purportedly oxyconforming teleost (gmac-mo2-24)  
+# The impact of isosmotic conditions on the metabolism and hypoxia tolerance of a purportedly oxyconforming teleost (gmac-mo2-24)  
 
 [![License: CC BY 4.0](https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
 
@@ -8,7 +8,7 @@
 
 ## 📄 Project Summary
 
--   **Title**: The role of osmorespiratory compromise in metabolism and hypoxia tolerance of a purportedly oxyconforming teleost
+-   **Title**: The impact of isosmotic conditions on the metabolism and hypoxia tolerance of a purportedly oxyconforming teleost
 -   **Authors**: Timothy D. Clark^1^, Luis L. Kuchenmüller^1^, Elizabeth C. Hoots^1^, Maryane Gradito^1^, and Jake M. Martin^1,2^ <br>
 -   **Institutions**:\
     ^1^ School of Life and Environmental Sciences, Deakin University, Geelong, VIC, Australia\
@@ -34,7 +34,7 @@ The study compares SMR, RMR, and estimated O2crit values across salinity treatme
 ├── 📂 output-mod/                 Model outputs (.rds files)
 ├── 📄 gmac-labchart-24.Rmd        Main analysis and figure script
 ├── 📄 index.html                  R script for Git page 
-├── 📄 supplementary-file-1.html   R script as supplementary file 1
+├── 📄 supplementary-file-1.pdf    R script as supplementary file 1
 └── 📄 EXP-2024-gmac-labchart.Rproj RStudio project file
 ```
 

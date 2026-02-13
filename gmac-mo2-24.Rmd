@@ -1,32 +1,20 @@
 ---
-title: "The role of osmorespiratory compromise in metabolism and hypoxia tolerance of a purportedly oxyconforming teleost"
-author: "Jake Martin"
+title: The impact of isosmotic conditions on the metabolism and hypoxia tolerance
+  of a purportedly oxyconforming teleost
+author: Timothy D. Clark, Luis L. Kuchenmüller, Elizabeth C. Hoots, Maryane Gradito,
+  Jake M. Martin
 date: "`r format(Sys.time(), '%d %B %Y')`"
 output:
-  # pdf_document:
-  #   toc: true
-  #   latex_engine: xelatex
-  #   number_sections: true
-  #   pandoc_args: ["--variable=documentclass:article"]
   html_document:
-    code_download: true
-    code_folding: hide
-    depth: 4
-    number_sections: no
-    theme:  cosmo
     toc: yes
-    toc_float: yes
-    toc_depth: 4
-knit: |
-  (function(input, ...) {
-    output_path <- rmarkdown::render(
-      input,
-      output_file = 'index.html',
-      envir = globalenv()
-    )
-    file.copy(output_path, "supplementary-file-1.html", overwrite = TRUE)
-    output_path
-  })
+    df_print: paged
+  pdf_document:
+    toc: yes
+    latex_engine: xelatex
+    number_sections: yes
+    pandoc_args: "--variable=documentclass:article"
+  word_document:
+    toc: yes
 ---
 
 [![License: CC BY 4.0](https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/) 
@@ -93,7 +81,7 @@ Clark, T. D., Kuchenmüller, L. L., Hoots, E. C., Gradito, M., & Martin, J. M. (
 
 <!------------------------------->
 
-# 📦 Required packages and knit settings
+# 🔧 Set up: Packages and knit settings
 
 <!------------------------------->
 
@@ -107,11 +95,11 @@ if (!requireNamespace("pacman", quietly = TRUE)) install.packages("pacman")
 # ---- List of required packages ----
 pkgs <- c(
   # ----- Data Visualisation -----
-  "ggthemes", "bayesplot", "gt", "gtsummary", "plotly", "qqplotr", "gridExtra",
+  "ggthemes", "bayesplot", "gt", "gtsummary", "plotly", "qqplotr", "gridExtra", "flextable",
   
   # ----- Tidy Data and Wrangling -----
   "tidyverse", "janitor", "readxl", "broom.mixed", "data.table", "hms", "devtools",
-  "mclust",
+  "mclust", "officer", "here",
   
   # ----- Modelling and Statistical Analysis -----
   "brms", "rstan", "marginaleffects", "performance", "emmeans",
@@ -138,7 +126,7 @@ knitr::opts_chunk$set(
 
 <!------------------------------->
 
-# 🔧 Custom functions
+# 📦 Custom functions
 
 <!------------------------------->
 
@@ -577,13 +565,13 @@ cex=o2crit.cex, adj=c(-0.1,0.5))
 
 ```{r}
 wd <- getwd()
-input_data_wd <- paste0(wd, "./input-data") # creates a variable with the name of the wd we want to use
+input_data_wd <- file.path(wd, "input-data") # creates a variable with the name of the wd we want to use
 ```
 
 **📥 mod_data_wd**: Directory for model output data estimated slopes
 
 ```{r}
-mod_data_wd <- paste0(wd, "./mod-data")
+mod_data_wd <- file.path(wd, "mod-data")
 ```
 
 ## Output
@@ -1298,7 +1286,7 @@ p <- p %>%
   )
 
 # Display plot
-p
+#p
 ```
 
 ***Figure S2:*** interactive plot of metabolic rate measurements (MO₂; mg O₂ g^-1^h^-1^) by dissolved oxygen percentage (DO) for all fish, including all estimates during the SMR phase (i.e. intermittent phase). Individual linear regression were fitted for visual reference, and do not represent the best fitting regression.
@@ -2172,9 +2160,176 @@ table_bwm
 
 Summary of fish best model with a linear function.
 
-### Table S3
+##### Mass effect
 
-**Table S3:** Ten fish that were best modelled with a linear function, showing r^2^, and estimate (). Only two fish had positive estimates with credible intervals that did not overlap with zero, which are highlighted as conforming in the table. Thus in total, 13 of 58 fish showed sufficient evidence to be conforming.
+Checking if this pattern is driven by mass, as request by the reviewer. 
+
+
+```{r}
+mass_polynomial <- best_mod %>% 
+  dplyr::group_by(model_type) %>% 
+  dplyr::select(id, model_type) %>% 
+  left_join(smr, ., by = "id")
+
+
+mass_polynomial_tbl <-  mass_polynomial %>% 
+  dplyr::group_by(model_type) %>% 
+  dplyr::reframe(mean_mass = round(mean(mass, na.rm = T),2),
+                 sd_mass = round(sd(mass, na.rm = T),2),
+                 n = length(id)) %>% 
+  dplyr::mutate(model_type = case_when(
+      model_type == "lm_0" ~ "0th-order polynomial",
+      model_type == "lm_1" ~ "1st-order polynomial",
+      model_type == "lm_2" ~ "2nd-order polynomial",
+      model_type == "lm_3" ~ "3rd-order polynomial",
+      TRUE ~ "ERROR"
+    )) %>% 
+  gt() %>% 
+    cols_align(
+    align = "center", 
+    columns = everything()
+  ) %>% 
+  cols_label(
+    model_type = "Best polynomial fit",
+    mean_mass = "Mean mass (g)",
+    sd_mass = "SD mass (g)",
+    n = "n"
+  )
+mass_polynomial_tbl
+```
+
+
+Modling 
+
+```{r}
+mass_bf <- bf(mass ~ model_type,
+                  family = gaussian())
+```
+
+###### Prior selection
+
+These are the default priors for the model. We will use these.
+
+```{r}
+priors_default <- get_prior(mass_bf, data = mass_polynomial, family = gaussian())
+priors_default %>% 
+  gt()
+```
+
+###### Run model
+
+Here we run the model, I have hashed this out because I have saved the model for quick reloading.
+
+⏭️ **Skip this step** if you have downloaded the saved model 'mass_mod.rds'
+
+```{r, echo=FALSE}
+# mass_mod <- brm(mass_bf,
+#                data = mass_polynomial,
+#                cores = 4,
+#                chains = 4,
+#                prior = priors_default,
+#                warmup = 1000,
+#                seed = 143019,
+#                thin = 2,
+#                iter = 8000,
+#                save_pars = save_pars(all=TRUE),
+#                sample_prior = TRUE,
+#                file = paste0(output_mods_wd, './mass_mod'))
+# print("Model complete")
+```
+
+Here we reload the model
+
+```{r}
+mass_mod <-  readRDS(file = paste0(output_mods_wd, './mass_mod.rds'))
+```
+
+###### Model diagnostics
+
+Checking model convergence
+
+```{r}
+color_scheme_set("red")
+plot(mass_mod, ask = F)
+```
+
+Using leave one out (loo) measure of fit, the model appears to preform well, two Pareto k estimates falls outside the good range (0.7, 1]
+
+```{r}
+loo(mass_mod)
+```
+
+Model predictions generally align with the observed data, but there is a lot of uncertainty around this estimate.
+
+```{r}
+color_scheme_set("red")
+p <- pp_check(mass_mod, type = "dens_overlay")
+p
+```
+
+
+###### Results
+
+```{r}
+model_est <- fixef(mass_mod, probs = c(0.025, 0.975)) %>% 
+  as.data.frame() %>% 
+  tibble::rownames_to_column(var = "Predictor") %>% 
+  dplyr::mutate('β' = round(Estimate, 3),
+                Q2.5 = round(Q2.5, 3),
+                Q97.5 = round(Q97.5, 3),
+                '95% CI' = paste0("[", Q2.5, ", ", Q97.5, "]"))
+
+model_est %>% 
+  dplyr::select(Predictor, 'β', '95% CI') %>% 
+  gt()
+```
+
+Looking at the marginal mean difference between salinity groups
+
+```{r}
+em_results <- emmeans(mass_mod, ~ model_type) 
+
+em_results_df <-  em_results %>% 
+  as.data.frame() %>%
+  mutate(across(where(is.numeric), ~ round(.,3)))
+
+
+em_results_df %>% 
+  gt()
+```
+### Table S3 
+
+**Table S3:** Posterior mean differences in mass (g) (estimate) and 95% highest posterior density intervals (95% CrI) are shown for all pairwise comparisons among model types (0th- to 3rd-order polynomial). Estimates are derived from a Gaussian Bayesian model and represent differences in marginal posterior means on the response scale. A meaningful difference was inferred when the 95% CrI did not overlap zero.
+
+```{r}
+tableS3 <- contrast(em_results, method = "pairwise") %>% 
+  as.data.frame() %>%
+  mutate(across(where(is.numeric), ~ round(.x, 2))) %>% 
+  mutate(
+    contrast = contrast %>% 
+      str_replace_all("lm_0", "0th-order polynomial") %>%
+      str_replace_all("lm_1", "1st-order polynomial") %>%
+      str_replace_all("lm_2", "2nd-order polynomial") %>%
+      str_replace_all("lm_3", "3rd-order polynomial") %>%
+      str_replace_all(" - ", " \u2212 "),   # nicer minus sign
+    cri = paste0(lower.HPD, " to ", upper.HPD)
+  ) %>% 
+  select(contrast, estimate, cri) %>% 
+  gt() %>% 
+  cols_align(align = "center", columns = everything()) %>% 
+  cols_label(
+    contrast = "Contrast",
+    estimate = "Estimate (g)",
+    cri = "95% CrI"
+  )
+
+tableS3
+```
+
+
+### Table S4
+
+**Table S4:** Ten fish that were best modelled with a linear function, showing r^2^, and estimate (). Only two fish had positive estimates with credible intervals that did not overlap with zero, which are highlighted as conforming in the table. Thus in total, 13 of 58 fish showed sufficient evidence to be conforming.
 
 ```{r}
 table_lm_1 <- best_mod %>% 
@@ -2922,6 +3077,7 @@ min_dos <- slope_tidy %>%
 
 min_dos %>% 
   dplyr::reframe(
+     n = length(id),
     mean_min_do = round(mean(min_do),2),
     sd_min_do = round(sd(min_do),2),
     min_min_do = round(min(min_do),2)
@@ -3388,6 +3544,8 @@ fig3
 #        height = 297/2,  # Specify the height of the plot
 #        units = "mm")
 ```
+
+
 
 <!------------------------------->
 

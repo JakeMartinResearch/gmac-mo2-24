@@ -1,20 +1,20 @@
 ---
 title: The impact of isosmotic conditions on the metabolism and hypoxia tolerance
-  of a purportedly oxyconforming teleost
+  of a reportedly oxyconforming teleost
 author: Timothy D. Clark, Luis L. Kuchenmüller, Elizabeth C. Hoots, Maryane Gradito,
   Jake M. Martin
 date: "`r format(Sys.time(), '%d %B %Y')`"
 output:
-  html_document:
+  word_document:
     toc: yes
-    df_print: paged
   pdf_document:
     toc: yes
     latex_engine: xelatex
     number_sections: yes
     pandoc_args: "--variable=documentclass:article"
-  word_document:
+  html_document:
     toc: yes
+    df_print: paged
 ---
 
 [![License: CC BY 4.0](https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/) 
@@ -77,7 +77,7 @@ I (Jake Martin) am dyslexic. I have made an effort to review the script for gram
 
 3.  **Recommended citation for this data:**\
 
-Clark, T. D., Kuchenmüller, L. L., Hoots, E. C., Gradito, M., & Martin, J. M. (2025, May 28). The role of osmorespiratory compromise in hypoxia tolerance of the purportedly oxyconforming teleost Galaxias maculatus. https://doi.org/10.17605/OSF.IO/GFXCA
+Clark, T. D., Kuchenmüller, L. L., Hoots, E. C., Gradito, M., & Martin, J. M. (2025, May 28). The impact of isosmotic conditions on the metabolism and hypoxia tolerance of a reportedly oxyconforming teleost. https://doi.org/10.17605/OSF.IO/GFXCA
 
 <!------------------------------->
 
